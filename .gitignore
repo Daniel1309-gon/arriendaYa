@@ -1,0 +1,14 @@
+# Node                                                                                                                                      
+node_modules/                                                                                                                               
+dist/                                                                                                                                       
+                                                                                                                                            
+# Python / uv                                                                                                                               
+__pycache__/                                                                                                                                
+.venv/                                                                                                                                      
+.python-version                                                                                                                             
+                                                                                                                                            
+# Entorno                                                                                                                                   
+.env                                                                                                                                        
+                                                                                                                                            
+# SO                                                                                                                                        
+.DS_Store

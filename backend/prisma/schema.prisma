@@ -1,0 +1,51 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Usuario {                                                                                                                             
+      id             String     @id @default(uuid())                                                                                            
+      email          String     @unique                                                                                                         
+      zonasInteres   String[]                                                                                                                   
+      edad           Int?                                                                                                                       
+      ciudadOrigen   String?                                                                                                                    
+      telefono       String?                                                                                                                    
+      presupuestoMin Decimal?                                                                                                                   
+      presupuestoMax Decimal?                                                                                                                   
+      googleId       String?    @unique                                                                                                         
+      fechaCreacion  DateTime   @default(now())                                                                                                 
+                                                                                                                                                
+      inmuebles      Inmueble[]                                                                                                                 
+}
+
+model Inmueble {                                                                                                                            
+      id                     String  @id @default(uuid())                                                                                       
+      usuarioId              String                                                                                                             
+      valorCanon             Decimal                                                                                                            
+      administracionIncluida Boolean                                                                                                            
+      valorAdministracion    Decimal?                                                                                                           
+      tamanoM2               Int                                                                                                                
+      habitaciones           Int                                                                                                                
+      banos                  Int                                                                                                                
+      patio                  Boolean @default(false)                                                                                            
+      parqueaderos           Int     @default(0)                                                                                                
+      antiguedadAnos         Int                                                                                                                
+      estrato                Int                                                                                                                
+      piso                   Int                                                                                                                
+      ascensor               Boolean                                                                                                            
+      petFriendly            Boolean @default(false)                                                                                            
+      latitud                Decimal                                                                                                            
+      longitud               Decimal                                                                                                            
+      url                    String?                                                                                                            
+                                                                                                                                                
+      usuario                Usuario @relation(fields: [usuarioId], references: [id])                                                           
+}
