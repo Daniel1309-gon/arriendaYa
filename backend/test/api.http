@@ -1,0 +1,172 @@
+### SMOKE TEST — ArriendaYa Backend API
+### Requiere VS Code REST Client extension o similar (IntelliJ .http, Postman, curl)
+### Ejecutar en orden secuencial. Las variables se heredan entre requests.
+
+@base = http://localhost:3000
+
+#############################################
+# 1. HEALTH CHECK
+#############################################
+
+### GET health
+GET {{base}}/health
+
+#############################################
+# 2. AUTH — OTP Flow
+#############################################
+
+### POST /auth/otp/request — Solicitar código OTP
+# El código aparece en la consola del servidor (console.log)
+POST {{base}}/auth/otp/request
+Content-Type: application/json
+
+{
+  "email": "test@arriendaya.com"
+}
+
+### POST /auth/otp/verify — Verificar OTP
+# Reemplazar <CODIGO> con el código que apareció en la consola
+# Guarda el token en la variable global
+POST {{base}}/auth/otp/verify
+Content-Type: application/json
+
+{
+  "email": "test@arriendaya.com",
+  "codigo": "<CODIGO>"
+}
+
+#############################################
+# 3. AUTH — Google OAuth (mock / manual)
+#############################################
+
+### POST /auth/google — Iniciar sesión con Google
+# Requiere un idToken real de Google Identity Services.
+# Este endpoint fallará con 401 sin un token válido (esperado).
+POST {{base}}/auth/google
+Content-Type: application/json
+
+{
+  "idToken": "fake-token-for-testing"
+}
+
+#############################################
+# 4. USUARIOS — Perfil e Historial
+#############################################
+
+### GET /usuarios/perfil — Obtener perfil (PROTEGIDO)
+# Requiere token JWT del paso 2. Copia y pega el token aquí.
+GET {{base}}/usuarios/perfil
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+### PUT /usuarios/perfil — Actualizar perfil (PROTEGIDO)
+PUT {{base}}/usuarios/perfil
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "telefono": "3001234567",
+  "ciudadOrigen": "Bogotá",
+  "edad": 30,
+  "presupuestoMin": 800000,
+  "presupuestoMax": 2500000,
+  "zonasInteres": ["chapinero", "usaquen", "cedritos"]
+}
+
+### POST /usuarios/historial — Agregar inmueble al historial (PROTEGIDO)
+POST {{base}}/usuarios/historial
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "inmuebleId": "mock-finca-1"
+}
+
+### POST /usuarios/historial — Agregar otro inmueble (PROTEGIDO)
+POST {{base}}/usuarios/historial
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "inmuebleId": "mock-metro-1"
+}
+
+### GET /usuarios/historial — Consultar historial (PROTEGIDO)
+GET {{base}}/usuarios/historial
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+#############################################
+# 5. INMUEBLES — CRUD
+#############################################
+
+### POST /inmuebles — Crear inmueble propio (PROTEGIDO)
+POST {{base}}/inmuebles
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "valorCanon": 1800000,
+  "administracionIncluida": true,
+  "tamanoM2": 65,
+  "habitaciones": 2,
+  "banos": 1,
+  "patio": false,
+  "parqueaderos": 1,
+  "antiguedadAnos": 3,
+  "estrato": 4,
+  "piso": 6,
+  "ascensor": true,
+  "petFriendly": true,
+  "latitud": 4.6483,
+  "longitud": -74.0721,
+  "url": "https://arriendaya.com/inmueble-ejemplo"
+}
+
+### GET /inmuebles — Listar todos (PÚBLICO, sin token)
+GET {{base}}/inmuebles
+
+### GET /inmuebles — Con filtros
+GET {{base}}/inmuebles?precioMin=1000000&precioMax=3000000&habitaciones=2&estrato=4
+
+### DELETE /inmuebles/:id — Eliminar inmueble propio (PROTEGIDO)
+# Reemplazar <INMUEBLE_ID> con el id del inmueble creado arriba
+DELETE {{base}}/inmuebles/<INMUEBLE_ID>
+Authorization: Bearer {{token}}
+
+### PUT /inmuebles/:id — Actualizar inmueble (PROTEGIDO)
+# Reemplazar <INMUEBLE_ID> con el id del inmueble creado arriba
+PUT {{base}}/inmuebles/<INMUEBLE_ID>
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "valorCanon": 2000000,
+  "petFriendly": false
+}
+
+#############################################
+# 6. PROBANDO RUTAS PROTEGIDAS SIN TOKEN (deben devolver 401)
+#############################################
+
+### GET /usuarios/perfil — Sin token (esperado: 401)
+GET {{base}}/usuarios/perfil
+
+### POST /inmuebles — Sin token (esperado: 401)
+POST {{base}}/inmuebles
+Content-Type: application/json
+
+{
+  "valorCanon": 1000000,
+  "administracionIncluida": false,
+  "tamanoM2": 50,
+  "habitaciones": 1,
+  "banos": 1,
+  "parqueaderos": 0,
+  "antiguedadAnos": 5,
+  "estrato": 3,
+  "piso": 2,
+  "ascensor": false,
+  "latitud": 4.6097,
+  "longitud": -74.0817
+}
