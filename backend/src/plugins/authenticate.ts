@@ -1,4 +1,5 @@
 import { FastifyReply, FastifyRequest } from "fastify";
+import { prisma } from "../db/prisma";
 
 declare module "@fastify/jwt" {
   interface FastifyJWT {
@@ -16,6 +17,20 @@ export async function authenticate(
   } catch (err) {
     return reply
       .status(401)
-      .send({ error: err, message: "Unauthorized. Invalid or missing token" });
+      .send({ message: "Unauthorized. Invalid or missing token" });
+  }
+
+  // JWT is stateless, so verifying only its signature would leave a deleted
+  // account usable until the token expires. Check the account on every request
+  // to make the soft delete effective immediately.
+  const usuario = await prisma.usuario.findUnique({
+    where: { id: request.user.id },
+    select: { id: true, eliminadoEn: true },
+  });
+
+  if (!usuario || usuario.eliminadoEn !== null) {
+    return reply
+      .status(401)
+      .send({ message: "Unauthorized. Account is inactive" });
   }
 }

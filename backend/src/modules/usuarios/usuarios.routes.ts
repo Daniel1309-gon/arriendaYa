@@ -2,14 +2,20 @@ import { FastifyPluginAsyncZod } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { prisma } from "../../db/prisma";
 import { authenticate } from "../../plugins/authenticate";
+import { redisClient } from "../../db/redis";
+import { mongoClient } from "../../db/mongo";
 
 const UpdatePerfilSchema = z.object({
   zonasInteres: z.array(z.string()).optional(),
   edad: z.number().int().optional(),
   ciudadOrigen: z.string().optional(),
   telefono: z.string().optional(),
-  presupuestoMin: z.number().int().optional(),
-  presupuestoMax: z.number().int().optional(),
+  presupuestoMin: z.number().optional(),
+  presupuestoMax: z.number().optional(),
+});
+
+const AddHistorialSchema = z.object({
+  inmuebleId: z.string(),
 });
 
 export const usuariosRoutes: FastifyPluginAsyncZod = async (app) => {
@@ -19,8 +25,8 @@ export const usuariosRoutes: FastifyPluginAsyncZod = async (app) => {
       preValidation: authenticate,
       config: {
         rateLimit: {
-          max: 5, // Maximum number of requests
-          timeWindow: "5 minute", // Time window for the rate limit
+          max: 60, // Maximum number of requests
+          timeWindow: "1 minute", // Time window for the rate limit
         },
       },
     },
@@ -44,7 +50,7 @@ export const usuariosRoutes: FastifyPluginAsyncZod = async (app) => {
       },
       config: {
         rateLimit: {
-          max: 5, // Maximum number of requests
+          max: 10, // Maximum number of requests
           timeWindow: "5 minute", // Time window for the rate limit
         },
       },
@@ -59,6 +65,106 @@ export const usuariosRoutes: FastifyPluginAsyncZod = async (app) => {
       });
 
       return { success: true, perfil: perfilActualizado };
+    },
+  );
+
+  app.post(
+    "/historial",
+    {
+      preValidation: authenticate,
+      schema: { body: AddHistorialSchema },
+      config: {
+        rateLimit: {
+          max: 60, // Maximum number of requests
+          timeWindow: "1 minute", // Time window for the rate limit
+        },
+      },
+    },
+    async (request, reply) => {
+      const userId = request.user.id;
+      const { inmuebleId } = request.body;
+
+      const key = `user:${userId}:history`;
+
+      await redisClient.lpush(key, inmuebleId);
+
+      await redisClient.ltrim(key, 0, 9);
+
+      return { success: true, message: "Inmueble agregado al historial" };
+    },
+  );
+
+  app.get(
+    "/historial",
+    {
+      preValidation: authenticate,
+      config: {
+        rateLimit: {
+          max: 60, // Maximum number of requests
+          timeWindow: "1 minute", // Time window for the rate limit
+        },
+      },
+    },
+    async (request, reply) => {
+      const userId = request.user.id;
+
+      const key = `user:${userId}:history`;
+
+      const inmuebleIds = await redisClient.lrange(key, 0, 9);
+
+      if (inmuebleIds.length === 0) {
+        return { success: true, historial: [] };
+      }
+
+      const inmueblesPostgres = await prisma.inmueble.findMany({
+        where: { id: { in: inmuebleIds } },
+      });
+
+      const db = mongoClient.db("arriendaya_scraper");
+      const inmueblesMongo = await db
+        .collection("inmuebles_scrapeados")
+        .find({ id: { $in: inmuebleIds } })
+        .toArray();
+      return {
+        success: true,
+        historial: [...inmueblesPostgres, ...inmueblesMongo],
+      };
+    },
+  );
+
+  app.delete(
+    "/perfil",
+    {
+      preValidation: authenticate,
+      config: {
+        rateLimit: {
+          max: 10, // Maximum number of requests
+          timeWindow: "5 minute", // Time window for the rate limit
+        },
+      },
+    },
+    async (request, reply) => {
+      const userId = request.user.id;
+
+      const usuario = await prisma.usuario.findUnique({
+        where: { id: userId },
+        select: { email: true, eliminadoEn: true },
+      });
+
+      if (!usuario || usuario.eliminadoEn !== null) {
+        return reply.status(204).send();
+      }
+
+      await prisma.usuario.update({
+        where: { id: userId },
+        data: { eliminadoEn: new Date() },
+      });
+
+      // Remove user-scoped ephemeral data immediately. The database record is
+      // retained only as an inactive tombstone for referential integrity.
+      await redisClient.del(`user:${userId}:history`, `otp:${usuario.email}`);
+
+      return reply.status(204).send();
     },
   );
 };

@@ -72,11 +72,22 @@ export const authRoutes: FastifyPluginAsyncZod = async (app) => {
       // Delete the used OTP from Redis
       await redisClient.del(`otp:${email}`);
 
-      const usuario = await prisma.usuario.upsert({
+      const usuarioExistente = await prisma.usuario.findUnique({
         where: { email },
-        update: {},
-        create: { email },
       });
+
+      if (usuarioExistente?.eliminadoEn) {
+        return reply.status(403).send({
+          success: false,
+          error: "This account has been deleted",
+        });
+      }
+
+      const usuario =
+        usuarioExistente ??
+        (await prisma.usuario.create({
+          data: { email },
+        }));
 
       const token = app.jwt.sign(
         { id: usuario.id, email: usuario.email },
@@ -116,11 +127,25 @@ export const authRoutes: FastifyPluginAsyncZod = async (app) => {
             .send({ success: false, error: "Invalid ID Token" });
         }
 
-        const usuario = await prisma.usuario.upsert({
+        const usuarioExistente = await prisma.usuario.findUnique({
           where: { email: payload.email },
-          update: { googleId: payload.sub },
-          create: { email: payload.email, googleId: payload.sub },
         });
+
+        if (usuarioExistente?.eliminadoEn) {
+          return reply.status(403).send({
+            success: false,
+            error: "This account has been deleted",
+          });
+        }
+
+        const usuario = usuarioExistente
+          ? await prisma.usuario.update({
+              where: { id: usuarioExistente.id },
+              data: { googleId: payload.sub },
+            })
+          : await prisma.usuario.create({
+              data: { email: payload.email, googleId: payload.sub },
+            });
 
         const token = app.jwt.sign(
           { id: usuario.id, email: usuario.email },

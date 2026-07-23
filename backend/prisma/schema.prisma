@@ -21,7 +21,8 @@ model Usuario {
       telefono       String?                                                                                                                    
       presupuestoMin Decimal?                                                                                                                   
       presupuestoMax Decimal?                                                                                                                   
-      googleId       String?    @unique                                                                                                         
+      googleId       String?    @unique                                                                                                          
+      eliminadoEn    DateTime?
       fechaCreacion  DateTime   @default(now())                                                                                                 
                                                                                                                                                 
       inmuebles      Inmueble[]                                                                                                                 
