@@ -11,6 +11,7 @@ import { redisClient } from './db/redis';
 
 import { authRoutes } from './modules/auth/auth.routes';
 import { usuariosRoutes } from './modules/usuarios/usuarios.routes';
+import { inmueblesRoutes } from './modules/inmuebles/inmuebles.routes';
 
 const app = Fastify({ logger: true }).withTypeProvider<ZodTypeProvider>();
 
@@ -18,7 +19,8 @@ app.setValidatorCompiler(validatorCompiler);
 app.setSerializerCompiler(serializerCompiler);
 
 app.register(cors, {
-    origin: true
+    origin: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE'],
 });
 app.register(jwt, {
     secret: process.env.JWT_SECRET!
@@ -33,8 +35,12 @@ app.get('/health', async (request, reply) => {
     return { status: 'ok' , message: 'Server is running' }
 });
 
+
 app.register(authRoutes, { prefix: '/auth' });
 app.register(usuariosRoutes, { prefix: '/usuarios' });
+app.register(inmueblesRoutes, { prefix: '/inmuebles' });
+
+
 const start = async() => {
     try {
         await connectToMongo();

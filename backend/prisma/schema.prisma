@@ -46,6 +46,7 @@ model Inmueble {
       latitud                Decimal                                                                                                            
       longitud               Decimal                                                                                                            
       url                    String?                                                                                                            
-                                                                                                                                                
+      descripcion            String?                                                                                                             
+                                                                                                                                                 
       usuario                Usuario @relation(fields: [usuarioId], references: [id])                                                           
 }
