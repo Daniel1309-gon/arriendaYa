@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useId, useState, type FormEvent } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Navbar } from "../components/layout/Navbar";
 import { Footer } from "../components/layout/Footer";
 import { Button } from "../components/ui/Button";
 import { OtpInput } from "../components/auth/OtpInput";
 import { GoogleSignInButton } from "../components/auth/GoogleSignInButton";
+import { AccountRecoveryPanel } from "../components/auth/AccountRecoveryPanel";
 import { useOtpLogin } from "../hooks/useOtpLogin";
 import { useGoogleAuth } from "../hooks/useGoogleAuth";
+import { useAccountRecovery } from "../hooks/useAccountRecovery";
 import { useAuth } from "../lib/AuthContext";
 
 type AuthTab = "email" | "google";
@@ -19,13 +21,36 @@ const HERO_STATS = [
 const HERO_IMAGE =
   "https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=1200&q=80";
 
+function formatRecoveryDate(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleDateString("es-CO", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+}
+
 export default function LoginPage() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { isAuthenticated, login } = useAuth();
   const emailFieldId = useId();
   const otpFieldId = useId();
   const [activeTab, setActiveTab] = useState<AuthTab>("email");
   const [otp, setOtp] = useState("");
+  const [recoveryMode, setRecoveryMode] = useState(false);
+
+  const justDeleted = searchParams.get("deleted") === "1";
+  const untilParam = searchParams.get("until");
+  const scheduledDate = untilParam ? formatRecoveryDate(untilParam) : "";
+
+  const dismissBanner = () => {
+    const next = new URLSearchParams(searchParams);
+    next.delete("deleted");
+    next.delete("until");
+    setSearchParams(next, { replace: true });
+  };
 
   const goHome = useCallback(
     (token: string) => {
@@ -37,22 +62,51 @@ export default function LoginPage() {
 
   const otpLogin = useOtpLogin(goHome);
   const googleAuth = useGoogleAuth(goHome);
+  const recovery = useAccountRecovery(goHome);
 
   useEffect(() => {
-    if (isAuthenticated) goHome("");
-  }, [goHome, isAuthenticated]);
+    if (isAuthenticated) navigate("/", { replace: true });
+  }, [isAuthenticated, navigate]);
 
-  useEffect(() => {
-    if (otpLogin.step === "verify") setOtp("");
-  }, [otpLogin.step]);
+  const loading = recoveryMode
+    ? recovery.loading
+    : otpLogin.loading || googleAuth.loading;
+  const error = recoveryMode
+    ? recovery.error
+    : activeTab === "email"
+      ? otpLogin.error
+      : googleAuth.error || otpLogin.error;
+  const info = recoveryMode
+    ? recovery.info
+    : activeTab === "email"
+      ? otpLogin.info
+      : "";
+  const deletedAccountError =
+    !recoveryMode &&
+    (error.toLowerCase().includes("deleted") ||
+      error.toLowerCase().includes("eliminada"));
 
-  const loading = otpLogin.loading || googleAuth.loading;
-  const error =
-    activeTab === "email" ? otpLogin.error : googleAuth.error || otpLogin.error;
-  const info = activeTab === "email" ? otpLogin.info : "";
+  const openRecovery = () => {
+    setRecoveryMode(true);
+    otpLogin.clearError();
+    googleAuth.clearError();
+    recovery.reset();
+    if (justDeleted) {
+      const next = new URLSearchParams(searchParams);
+      next.delete("deleted");
+      next.delete("until");
+      setSearchParams(next, { replace: true });
+    }
+  };
+
+  const closeRecovery = () => {
+    setRecoveryMode(false);
+    recovery.reset();
+  };
 
   const handleRequestCode = async (e: FormEvent) => {
     e.preventDefault();
+    setOtp("");
     await otpLogin.requestCode();
   };
 
@@ -121,47 +175,82 @@ export default function LoginPage() {
                 id="login-heading"
                 className="text-2xl font-bold text-emerald-700 mb-8"
               >
-                Iniciar Sesión
+                {recoveryMode ? "Recuperar cuenta" : "Iniciar Sesión"}
               </h2>
 
-              <div
-                className="flex border-b border-slate-200 mb-8"
-                role="tablist"
-                aria-label="Método de inicio de sesión"
-              >
-                <button
-                  type="button"
-                  role="tab"
-                  id="tab-email"
-                  aria-selected={activeTab === "email"}
-                  aria-controls="panel-email"
-                  tabIndex={activeTab === "email" ? 0 : -1}
-                  onClick={() => switchTab("email")}
-                  className={`flex-1 pb-4 text-sm font-semibold transition-all ${
-                    activeTab === "email"
-                      ? "border-b-2 border-emerald-700 text-emerald-700"
-                      : "text-slate-400 hover:text-emerald-700"
-                  }`}
+              {justDeleted && !recoveryMode && (
+                <div
+                  role="status"
+                  aria-live="polite"
+                  className="mb-6 p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-sm animate-fade-in-up"
                 >
-                  Email
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  id="tab-google"
-                  aria-selected={activeTab === "google"}
-                  aria-controls="panel-google"
-                  tabIndex={activeTab === "google" ? 0 : -1}
-                  onClick={() => switchTab("google")}
-                  className={`flex-1 pb-4 text-sm font-semibold transition-all ${
-                    activeTab === "google"
-                      ? "border-b-2 border-emerald-700 text-emerald-700"
-                      : "text-slate-400 hover:text-emerald-700"
-                  }`}
+                  <div className="flex items-start justify-between gap-3 mb-2">
+                    <p className="font-semibold leading-snug">
+                      Tu cuenta está programada para eliminarse
+                      {scheduledDate ? ` el ${scheduledDate}` : ""}.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={dismissBanner}
+                      aria-label="Cerrar aviso"
+                      className="text-emerald-700 hover:text-emerald-900 font-bold text-lg leading-none"
+                    >
+                      ×
+                    </button>
+                  </div>
+                  <p className="text-emerald-800 leading-relaxed mb-3">
+                    Si fue un error, tienes 14 días para recuperarla.
+                  </p>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={openRecovery}
+                  >
+                    Recuperar cuenta
+                  </Button>
+                </div>
+              )}
+
+              {!recoveryMode && (
+                <div
+                  className="flex border-b border-slate-200 mb-8"
+                  role="tablist"
+                  aria-label="Método de inicio de sesión"
                 >
-                  Google
-                </button>
-              </div>
+                  <button
+                    type="button"
+                    role="tab"
+                    id="tab-email"
+                    aria-selected={activeTab === "email"}
+                    aria-controls="panel-email"
+                    tabIndex={activeTab === "email" ? 0 : -1}
+                    onClick={() => switchTab("email")}
+                    className={`flex-1 pb-4 text-sm font-semibold transition-all ${
+                      activeTab === "email"
+                        ? "border-b-2 border-emerald-700 text-emerald-700"
+                        : "text-slate-400 hover:text-emerald-700"
+                    }`}
+                  >
+                    Email
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    id="tab-google"
+                    aria-selected={activeTab === "google"}
+                    aria-controls="panel-google"
+                    tabIndex={activeTab === "google" ? 0 : -1}
+                    onClick={() => switchTab("google")}
+                    className={`flex-1 pb-4 text-sm font-semibold transition-all ${
+                      activeTab === "google"
+                        ? "border-b-2 border-emerald-700 text-emerald-700"
+                        : "text-slate-400 hover:text-emerald-700"
+                    }`}
+                  >
+                    Google
+                  </button>
+                </div>
+              )}
 
               {error && (
                 <div
@@ -180,7 +269,11 @@ export default function LoginPage() {
                 </div>
               )}
 
-              {activeTab === "email" && (
+              {recoveryMode && (
+                <AccountRecoveryPanel recovery={recovery} />
+              )}
+
+              {!recoveryMode && activeTab === "email" && (
                 <div
                   id="panel-email"
                   role="tabpanel"
@@ -286,7 +379,7 @@ export default function LoginPage() {
                 </div>
               )}
 
-              {activeTab === "google" && (
+              {!recoveryMode && activeTab === "google" && (
                 <div
                   id="panel-google"
                   role="tabpanel"
@@ -311,10 +404,36 @@ export default function LoginPage() {
                 </div>
               )}
 
-              <p className="mt-12 text-center text-xs text-slate-500 max-w-70 mx-auto">
-                ¿No tienes cuenta? Al iniciar sesión se crea una
-                automáticamente.
-              </p>
+              {!recoveryMode ? (
+                <>
+                  <p className="mt-12 text-center text-xs text-slate-500 max-w-70 mx-auto">
+                    ¿No tienes cuenta? Al iniciar sesión se crea una
+                    automáticamente.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={openRecovery}
+                    className={`block mx-auto mt-4 text-xs font-semibold hover:underline ${
+                      deletedAccountError
+                        ? "text-emerald-700"
+                        : "text-slate-500 hover:text-emerald-700"
+                    }`}
+                  >
+                    {deletedAccountError
+                      ? "Recuperar cuenta eliminada"
+                      : "¿Eliminaste tu cuenta? Recuperarla"}
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  onClick={closeRecovery}
+                  disabled={recovery.loading}
+                  className="block mx-auto mt-8 text-xs text-slate-500 hover:text-emerald-700 hover:underline disabled:opacity-50"
+                >
+                  Volver a iniciar sesión
+                </button>
+              )}
             </div>
           </div>
         </section>

@@ -12,6 +12,7 @@ import { redisClient } from './db/redis';
 import { authRoutes } from './modules/auth/auth.routes';
 import { usuariosRoutes } from './modules/usuarios/usuarios.routes';
 import { inmueblesRoutes } from './modules/inmuebles/inmuebles.routes';
+import { startDeletedAccountsPurgeJob } from './jobs/purge-deleted-accounts';
 
 const app = Fastify({ logger: true }).withTypeProvider<ZodTypeProvider>();
 
@@ -44,6 +45,22 @@ app.register(inmueblesRoutes, { prefix: '/inmuebles' });
 const start = async() => {
     try {
         await connectToMongo();
+
+        const configuredPurgeInterval = Number(
+            process.env.DELETED_ACCOUNTS_PURGE_INTERVAL_MS,
+        );
+        const purgeInterval = Number.isFinite(configuredPurgeInterval) && configuredPurgeInterval > 0
+            ? configuredPurgeInterval
+            : undefined;
+        const stopDeletedAccountsPurgeJob = startDeletedAccountsPurgeJob(
+            (error) => app.log.error(error, 'Deleted account purge failed'),
+            purgeInterval,
+        );
+
+        app.addHook('onClose', async () => {
+            stopDeletedAccountsPurgeJob();
+        });
+
         const port = parseInt(process.env.PORT || '3000');
         await app.listen({ port: port, host: '0.0.0.0' });
 

@@ -1,12 +1,15 @@
 import { useState, useEffect, type FormEvent } from "react";
+import { useNavigate } from "react-router-dom";
 import { Navbar } from "../components/layout/Navbar";
 import { Footer } from "../components/layout/Footer";
 import { Button } from "../components/ui/Button";
 import { useAuth, RequireAuth } from "../lib/AuthContext";
-import { apiFetch } from "../lib/api";
+import { apiFetch, auth } from "../lib/api";
+import { DeleteAccountSection } from "../components/profile/DeleteAccountSection";
 
 export default function PerfilPage() {
-  const { user, refreshUser } = useAuth();
+  const { user, refreshUser, logout } = useAuth();
+  const navigate = useNavigate();
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -33,6 +36,15 @@ export default function PerfilPage() {
       });
     }
   }, [user]);
+
+  const handleAccountDeleted = (eliminacionProgramadaEn: string) => {
+    auth.clearToken();
+    logout();
+    navigate(
+      `/login?deleted=1&until=${encodeURIComponent(eliminacionProgramadaEn)}`,
+      { replace: true },
+    );
+  };
 
   const handleSave = async (e: FormEvent) => {
     e.preventDefault();
@@ -252,6 +264,15 @@ export default function PerfilPage() {
                 )}
               </form>
             </div>
+
+            {user && (
+              <div className="mt-8">
+                <DeleteAccountSection
+                  email={user.email}
+                  onDeleted={handleAccountDeleted}
+                />
+              </div>
+            )}
           </div>
         </main>
         <Footer />

@@ -46,6 +46,9 @@ export const auth = {
   },
   getToken: () => localStorage.getItem(TOKEN_KEY) || "",
   isAuthenticated: () => Boolean(localStorage.getItem(TOKEN_KEY)),
+  clearToken: () => {
+    localStorage.removeItem(TOKEN_KEY);
+  },
   logout: () => {
     localStorage.removeItem(TOKEN_KEY);
     if (window.location.pathname !== "/login") {

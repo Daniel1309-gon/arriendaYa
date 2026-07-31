@@ -21,11 +21,14 @@ model Usuario {
       telefono       String?                                                                                                                    
       presupuestoMin Decimal?                                                                                                                   
       presupuestoMax Decimal?                                                                                                                   
-      googleId       String?    @unique                                                                                                          
+      googleId       String?    @unique                                                                                                           
       eliminadoEn    DateTime?
+      eliminacionProgramadaEn DateTime?
       fechaCreacion  DateTime   @default(now())                                                                                                 
                                                                                                                                                 
-      inmuebles      Inmueble[]                                                                                                                 
+      inmuebles      Inmueble[]                                                                                                                  
+
+      @@index([eliminacionProgramadaEn])
 }
 
 model Inmueble {                                                                                                                            
@@ -49,5 +52,5 @@ model Inmueble {
       url                    String?                                                                                                            
       descripcion            String?                                                                                                             
                                                                                                                                                  
-      usuario                Usuario @relation(fields: [usuarioId], references: [id])                                                           
+      usuario                Usuario @relation(fields: [usuarioId], references: [id], onDelete: Cascade)                                       
 }

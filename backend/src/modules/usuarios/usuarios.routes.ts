@@ -4,6 +4,10 @@ import { prisma } from "../../db/prisma";
 import { authenticate } from "../../plugins/authenticate";
 import { redisClient } from "../../db/redis";
 import { mongoClient } from "../../db/mongo";
+import {
+  ACCOUNT_DELETION_GRACE_PERIOD_MS,
+  clearAccountRecoveryData,
+} from "../auth/account-recovery";
 
 const UpdatePerfilSchema = z.object({
   zonasInteres: z.array(z.string()).optional(),
@@ -138,8 +142,8 @@ export const usuariosRoutes: FastifyPluginAsyncZod = async (app) => {
       preValidation: authenticate,
       config: {
         rateLimit: {
-          max: 10, // Maximum number of requests
-          timeWindow: "5 minute", // Time window for the rate limit
+          max: 3,
+          timeWindow: "1 hour",
         },
       },
     },
@@ -148,23 +152,43 @@ export const usuariosRoutes: FastifyPluginAsyncZod = async (app) => {
 
       const usuario = await prisma.usuario.findUnique({
         where: { id: userId },
-        select: { email: true, eliminadoEn: true },
+        select: { email: true, eliminadoEn: true, eliminacionProgramadaEn: true },
       });
 
-      if (!usuario || usuario.eliminadoEn !== null) {
+      if (!usuario) {
         return reply.status(204).send();
       }
 
-      await prisma.usuario.update({
-        where: { id: userId },
-        data: { eliminadoEn: new Date() },
+      let programado = usuario.eliminacionProgramadaEn;
+
+      if (usuario.eliminadoEn === null) {
+        const eliminadoEn = new Date();
+        programado = new Date(
+          eliminadoEn.getTime() + ACCOUNT_DELETION_GRACE_PERIOD_MS,
+        );
+
+        const resultado = await prisma.usuario.updateMany({
+          where: { id: userId, eliminadoEn: null },
+          data: { eliminadoEn, eliminacionProgramadaEn: programado },
+        });
+
+        if (resultado.count !== 1) {
+          return reply.status(204).send();
+        }
+
+        // TODO(email): replace with real provider. Notify the user that the
+        // account is scheduled for deletion and include a recovery link.
+        console.log(
+          `[email:account-deletion-scheduled] to=${usuario.email} eliminacionProgramadaEn=${programado.toISOString()}`,
+        );
+
+        await clearAccountRecoveryData(userId, usuario.email);
+      }
+
+      return reply.status(200).send({
+        success: true,
+        eliminacionProgramadaEn: programado!.toISOString(),
       });
-
-      // Remove user-scoped ephemeral data immediately. The database record is
-      // retained only as an inactive tombstone for referential integrity.
-      await redisClient.del(`user:${userId}:history`, `otp:${usuario.email}`);
-
-      return reply.status(204).send();
     },
   );
 };
