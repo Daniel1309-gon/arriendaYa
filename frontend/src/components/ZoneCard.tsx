@@ -14,7 +14,7 @@ export function ZoneCard({ name, subtitle, propertyCount, imageUrl, delayMs = 0 
       className="group relative overflow-hidden rounded-2xl shadow-sm hover:shadow-xl transition-all duration-300 bg-white cursor-pointer animate-fade-in-up" 
       style={{ animationDelay: `${delayMs}ms` }}
     >
-      <div className="aspect-[4/3] overflow-hidden">
+      <div className="aspect-4/3 overflow-hidden">
         <div 
           className="w-full h-full bg-cover bg-center transition-transform duration-500 group-hover:scale-110" 
           style={{ backgroundImage: `url('${imageUrl}')` }}
