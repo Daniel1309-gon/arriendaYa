@@ -3,11 +3,15 @@ import { z } from "zod";
 import { prisma } from "../../db/prisma";
 import { authenticate } from "../../plugins/authenticate";
 import { redisClient } from "../../db/redis";
-import { mongoClient } from "../../db/mongo";
+import { MONGO_COLLECTION, MONGO_DB, mongoClient } from "../../db/mongo";
 import {
   ACCOUNT_DELETION_GRACE_PERIOD_MS,
   clearAccountRecoveryData,
 } from "../auth/account-recovery";
+import { sendAccountDeletionScheduledEmail } from "../../email/mailer";
+
+const FRONTEND_URL =
+  process.env.FRONTEND_URL || "http://localhost:5173";
 
 const UpdatePerfilSchema = z.object({
   zonasInteres: z.array(z.string()).optional(),
@@ -124,9 +128,9 @@ export const usuariosRoutes: FastifyPluginAsyncZod = async (app) => {
         where: { id: { in: inmuebleIds } },
       });
 
-      const db = mongoClient.db("arriendaya_scraper");
+      const db = mongoClient.db(MONGO_DB);
       const inmueblesMongo = await db
-        .collection("inmuebles_scrapeados")
+        .collection(MONGO_COLLECTION)
         .find({ id: { $in: inmuebleIds } })
         .toArray();
       return {
@@ -167,6 +171,22 @@ export const usuariosRoutes: FastifyPluginAsyncZod = async (app) => {
           eliminadoEn.getTime() + ACCOUNT_DELETION_GRACE_PERIOD_MS,
         );
 
+        const recoveryUrl = `${FRONTEND_URL}/recuperar`;
+
+        try {
+          await sendAccountDeletionScheduledEmail(
+            usuario.email,
+            programado,
+            recoveryUrl,
+          );
+        } catch (err) {
+          console.error("Failed to send account deletion scheduled email:", err);
+          return reply.status(502).send({
+            success: false,
+            error: "No se pudo enviar el aviso de eliminación. Intenta de nuevo.",
+          });
+        }
+
         const resultado = await prisma.usuario.updateMany({
           where: { id: userId, eliminadoEn: null },
           data: { eliminadoEn, eliminacionProgramadaEn: programado },
@@ -175,12 +195,6 @@ export const usuariosRoutes: FastifyPluginAsyncZod = async (app) => {
         if (resultado.count !== 1) {
           return reply.status(204).send();
         }
-
-        // TODO(email): replace with real provider. Notify the user that the
-        // account is scheduled for deletion and include a recovery link.
-        console.log(
-          `[email:account-deletion-scheduled] to=${usuario.email} eliminacionProgramadaEn=${programado.toISOString()}`,
-        );
 
         await clearAccountRecoveryData(userId, usuario.email);
       }

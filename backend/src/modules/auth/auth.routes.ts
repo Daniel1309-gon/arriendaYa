@@ -12,6 +12,11 @@ import {
   normalizeEmail,
   recoveryOtpKey,
 } from "./account-recovery";
+import {
+  sendAccountReactivatedEmail,
+  sendAccountRecoveryOtpEmail,
+  sendLoginOtpEmail,
+} from "../../email/mailer";
 
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
@@ -75,13 +80,22 @@ export const authRoutes: FastifyPluginAsyncZod = async (app) => {
       },
     },
     async (request, reply) => {
-      const email = normalizeEmail(request.body.email);
+const email = normalizeEmail(request.body.email);
       // Generate a random OTP (for example, a 6-digit number)
       const codigo = crypto.randomInt(100000, 1000000).toString();
       // Store OTP in Redis with a short expiration time
       await redisClient.setex(`otp:${email}`, 300, codigo); // 5 minutes expiration
 
-      console.log(`OTP for ${email}: ${codigo}`); // For testing purposes, log the OTP to the console
+      try {
+        await sendLoginOtpEmail(email, codigo);
+      } catch (err) {
+        console.error("Failed to send login OTP email:", err);
+        await redisClient.del(`otp:${email}`);
+        return reply
+          .status(502)
+          .send({ success: false, error: "No se pudo enviar el código. Intenta de nuevo." });
+      }
+
       return { success: true, message: "OTP sent successfully" };
     },
   );
@@ -153,7 +167,7 @@ export const authRoutes: FastifyPluginAsyncZod = async (app) => {
         },
       },
     },
-    async (request) => {
+async (request, reply) => {
       const email = normalizeEmail(request.body.email);
       const usuario = await prisma.usuario.findUnique({
         where: { email },
@@ -168,9 +182,16 @@ export const authRoutes: FastifyPluginAsyncZod = async (app) => {
           codigo,
         );
 
-        // Email delivery is mocked in this project. Replace this log with the
-        // email provider integration when it is available.
-        console.log(`Account recovery OTP for ${email}: ${codigo}`);
+        try {
+          await sendAccountRecoveryOtpEmail(email, codigo);
+        } catch (err) {
+          console.error("Failed to send account recovery OTP email:", err);
+          await redisClient.del(recoveryOtpKey(email));
+          return reply.status(502).send({
+            success: false,
+            error: "No se pudo enviar el código de recuperación. Intenta de nuevo.",
+          });
+        }
       }
 
       return {
@@ -347,10 +368,14 @@ export const authRoutes: FastifyPluginAsyncZod = async (app) => {
         });
       }
 
-      const token = app.jwt.sign(
+const token = app.jwt.sign(
         { id: usuario.id, email: usuario.email },
         { expiresIn: "1d" },
       );
+
+      sendAccountReactivatedEmail(usuario.email).catch((err) => {
+        console.error("Failed to send account reactivated email:", err);
+      });
 
       return {
         success: true,
