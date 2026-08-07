@@ -2,7 +2,7 @@ const BASE_URL = import.meta.env.PROD
   ? import.meta.env.VITE_API_URL_PRODUCTION
   : import.meta.env.VITE_API_URL_DEVELOPMENT;
 
-const TOKEN_KEY = "arriendaya_token";
+const TOKEN_KEY = "rentia_token";
 
 export async function apiFetch<T>(
   endpoint: string,
@@ -12,7 +12,7 @@ export async function apiFetch<T>(
 
   const headers = new Headers(options.headers || {});
 
-  if (!(options.body instanceof FormData)) {
+  if (options.body && !(options.body instanceof FormData)) {
     headers.set("Content-Type", "application/json");
   }
 

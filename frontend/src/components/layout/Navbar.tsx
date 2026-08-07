@@ -25,7 +25,7 @@ export function Navbar() {
     <nav className={`fixed top-0 w-full z-50 flex justify-between items-center px-4 md:px-16 transition-all duration-300 ease-in-out ${scrolled ? 'h-16 bg-white/95 shadow-sm backdrop-blur-md' : 'h-20 bg-white/80 backdrop-blur-md'}`}>
       <div className="flex items-center gap-2">
         <Link to="/" className="text-2xl font-bold text-emerald-700 tracking-tight no-underline">
-          ArriendaYa
+          Rentia
         </Link>
       </div>
 
