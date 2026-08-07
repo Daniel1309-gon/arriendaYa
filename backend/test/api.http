@@ -1,4 +1,4 @@
-### SMOKE TEST — ArriendaYa Backend API
+### SMOKE TEST — Rentia Backend API
 ### Requiere VS Code REST Client extension o similar (IntelliJ .http, Postman, curl)
 ### Ejecutar en orden secuencial. Las variables se heredan entre requests.
 
@@ -21,7 +21,7 @@ POST {{base}}/auth/otp/request
 Content-Type: application/json
 
 {
-  "email": "test@arriendaya.com"
+  "email": "test@rentia.online"
 }
 
 ### POST /auth/otp/verify — Verificar OTP
@@ -31,7 +31,7 @@ POST {{base}}/auth/otp/verify
 Content-Type: application/json
 
 {
-  "email": "test@arriendaya.com",
+  "email": "test@rentia.online",
   "codigo": "<CODIGO>"
 }
 
@@ -120,7 +120,7 @@ Content-Type: application/json
   "petFriendly": true,
   "latitud": 4.6483,
   "longitud": -74.0721,
-  "url": "https://arriendaya.com/inmueble-ejemplo"
+  "url": "https://rentia.online/inmueble-ejemplo"
 }
 
 ### GET /inmuebles — Listar todos (PÚBLICO, sin token)
