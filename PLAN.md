@@ -1,4 +1,4 @@
-# Plan de Implementación — ArriendaYa (Core MVP)
+# Plan de Implementación — Rentia (Core MVP)
 
 Agregador y portal de arriendos para Bogotá. Arquitectura modular en monorepo, corriendo inicialmente en una sola instancia, lista para escalar.
 

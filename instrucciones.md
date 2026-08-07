@@ -1,4 +1,4 @@
-Actúa como un Arquitecto de Software Senior y Desarrollador Full-stack. Vamos a construir el Core MVP de "ArriendaYa", un agregador y portal de arriendos para Bogotá. 
+Actúa como un Arquitecto de Software Senior y Desarrollador Full-stack. Vamos a construir el Core MVP de "Rentia", un agregador y portal de arriendos para Bogotá. 
 
 Tu objetivo en esta fase es estructurar el proyecto completo utilizando una arquitectura simplificada pero modular (corriendo inicialmente en una sola instancia/servidor para evitar sobrecostos y complejidad, pero lista para escalar).
 
