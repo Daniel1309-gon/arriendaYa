@@ -6,8 +6,7 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "apscheduler>=3.11.3",
-    "beautifulsoup4>=4.15.0",
-    "dotenv>=0.9.9",
+    "python-dotenv>=1.2.2",
     "playwright>=1.61.0",
     "pydantic>=2.13.4",
     "pymongo>=4.17.0",

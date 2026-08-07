@@ -1,6 +1,8 @@
 import { MongoClient } from 'mongodb';
 
 const uri = process.env.MONGO_URL || 'mongodb://localhost:27017/arriendaya_scraper';
+export const MONGO_DB = process.env.MONGO_DB || 'arriendaya_scraper';
+export const MONGO_COLLECTION = process.env.MONGO_COLLECTION || 'inmuebles_scrapeados';
 
 export const mongoClient = new MongoClient(uri);
 

@@ -1,0 +1,96 @@
+# Scraper — Rentia
+
+Scraper de portales de arriendo para Bogotá. Persiste en MongoDB (colección
+`inmuebles_scrapeados`) y se ejecuta cada 3 horas con APScheduler.
+
+## Portal actual
+
+**Fincaraiz** (`/arriendo/...`). Se parsea el JSON embebido en `__NEXT_DATA__`
+de las páginas de listado, que ya contiene todos los campos requeridos
+(precio, administración, estrato, piso, parqueaderos, antigüedad, lat/lng,
+descripción y facilities para ascensor/patio/mascotas). No requiere visitar
+páginas de detalle.
+
+La paginación es **por path** (`…/bogota-dc/pagina2`); el query param
+`?pagina=N` es ignorado por el servidor. La página 1 es la URL base sin
+sufijo.
+
+Antes de navegar se consulta `robots.txt` y se rechazan rutas no permitidas,
+con rate limiting conservador (delays 2–5 s). La URL configurada debe ser
+HTTPS, pertenecer a Fincaraiz y no llevar query ni fragmento. Metrocuadrado
+queda fuera: prohíbe la ruta de resultados en su `robots.txt` y usa Incapsula.
+
+## Estructura
+
+```
+main.py                 # entry point + scheduler
+config.py               # variables desde .env
+models.py               # InmuebleScraped (pydantic)
+db.py                   # Mongo: índice único, upsert bulk, marcar inactivos
+utils/parsing.py        # normalización de números/precios/áreas
+scrapers/
+  base.py               # Playwright + extracción __NEXT_DATA__ con retry/delay
+  fincaraiz.py          # listado + mapeo a InmuebleScraped
+```
+
+## Setup
+
+```bash
+cp .env.example .env            # ajusta MONGO_URL y FINCARAIZ_BASE_URL
+uv run playwright install chromium
+```
+
+## Ejecución
+
+```bash
+uv run python main.py           # corrida inmediata + scheduler cada 3h
+```
+
+Para una prueba rápida, baja `MAX_PAGINAS=1` en `.env`.
+
+Variables principales (ver `.env.example`):
+
+| Variable | Default | Descripción |
+|---|---|---|
+| `FINCARAIZ_BASE_URL` | `…/arriendo/apartamentos/bogota-dc` | URL de búsqueda canónica |
+| `MAX_PAGINAS` | `5` | Páginas por corrida (~21 inmuebles/página) |
+| `DELAY_MIN_S` / `DELAY_MAX_S` | `2` / `5` | Delay aleatorio entre requests |
+| `SCRAPE_INTERVAL_HOURS` | `3` | Intervalo del scheduler |
+| `HEADLESS` | `true` | `false` para ver el navegador |
+| `INACTIVE_AFTER_DAYS` | `14` | Días sin reaparecer antes de marcar inactivo. Debe superar el período de barrido (ver abajo) |
+| `MIN_ITEMS_PER_RUN` | `10` | Mínimo de items válidos antes de confirmar una corrida |
+| `MIN_MAPPED_RATIO` | `0.25` | Proporción mínima de items mapeados frente a items recibidos |
+| `SCRAPE_LEASE_TTL_S` | `21600` | Duración del lease contra dos procesos concurrentes |
+| `MAX_CANON_S` / `MAX_AREA_M2` | `50000000` / `2000` | Límites para descartar outliers |
+
+## Rotación de ventana (cursor)
+
+Cada corrida cubre `MAX_PAGINAS` páginas. Para no scrapear siempre las mismas,
+la ventana **rota entre corridas**: la página de arranque se persiste en Mongo (`scraper_meta`, doc
+`cursor:fincaraiz`) y cada corrida arranca donde terminó la anterior,
+envolviendo a 1 al llegar al final del listado.
+
+El período de barrido se calcula con el `lastPage` informado por el portal.
+Si una corrida se corta por bloqueo, el cursor avanza sólo hasta la última
+página traída con éxito y no se marcan inmuebles como inactivos.
+
+## Inmuebles despublicados
+
+Cada corrida actualiza `fechaScraping` de lo que ve, y al final se marcan
+`activo: false` (nunca se borran) los documentos cuyo `fechaScraping` lleva
+más de `INACTIVE_AFTER_DAYS` sin refrescarse. El backend filtra
+`activo: { $ne: false }`.
+
+**Invariante:** `INACTIVE_AFTER_DAYS` debe ser mayor que el período de
+barrido completo (`ceil(lastPage / MAX_PAGINAS) × SCRAPE_INTERVAL_HOURS / 24`
+días). Si no, se desactivan inmuebles publicados justo antes de volver a
+verlos. El scraper loguea un warning si la configuración viola este
+invariante.
+
+## Identidad y dedupe
+
+La clave única es `id` (`fincaraiz-<externalId>`), estable ante cambios de
+slug. `urlOriginal` tiene índice no único: Fincaraiz a veces cambia el slug
+del mismo inmueble (p. ej. `…-cedritos-bogota` → `…-cedritos-zona-norte-bogota`),
+y upsertar por URL crearía duplicados. Las URLs y descripciones se validan y
+las descripciones se limpian de correos y teléfonos antes de persistirlas.
