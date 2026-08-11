@@ -146,7 +146,56 @@ Content-Type: application/json
 }
 
 #############################################
-# 6. PROBANDO RUTAS PROTEGIDAS SIN TOKEN (deben devolver 401)
+# 6. INMUEBLES — Fotos propias (Cloudinary)
+#############################################
+# Requiere las tres variables CLOUDINARY_* en backend/.env; sin ellas el POST devuelve 503.
+# Los inmuebles scrapeados NO pasan por acá: sus fotos son URLs del CDN del
+# portal que guarda el scraper.
+
+### POST /inmuebles/:id/imagenes — Subir fotos (PROTEGIDO, multipart)
+# Reemplazar <INMUEBLE_ID> y las rutas de los archivos.
+# Máximo 10 por inmueble, 5 MB cada una, JPEG/PNG/WebP.
+# El formato se verifica por magic bytes: renombrar un .txt a .png da 415.
+POST {{base}}/inmuebles/<INMUEBLE_ID>/imagenes
+Authorization: Bearer {{token}}
+Content-Type: multipart/form-data; boundary=RentiaBoundary
+
+--RentiaBoundary
+Content-Disposition: form-data; name="imagenes"; filename="sala.jpg"
+Content-Type: image/jpeg
+
+< ./fixtures/sala.jpg
+--RentiaBoundary
+Content-Disposition: form-data; name="imagenes"; filename="cocina.jpg"
+Content-Type: image/jpeg
+
+< ./fixtures/cocina.jpg
+--RentiaBoundary--
+
+### DELETE /inmuebles/:id/imagenes — Quitar una foto (PROTEGIDO)
+# La URL debe estar en el array del inmueble; si no, 404.
+DELETE {{base}}/inmuebles/<INMUEBLE_ID>/imagenes
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "url": "https://res.cloudinary.com/<cloud>/image/upload/v1/rentia/inmuebles/<usuario>/<inmueble>/<id>.jpg"
+}
+
+### POST /inmuebles/:id/imagenes — Inmueble de otro usuario (esperado: 403)
+POST {{base}}/inmuebles/<INMUEBLE_AJENO_ID>/imagenes
+Authorization: Bearer {{token}}
+Content-Type: multipart/form-data; boundary=RentiaBoundary
+
+--RentiaBoundary
+Content-Disposition: form-data; name="imagenes"; filename="sala.jpg"
+Content-Type: image/jpeg
+
+< ./fixtures/sala.jpg
+--RentiaBoundary--
+
+#############################################
+# 7. PROBANDO RUTAS PROTEGIDAS SIN TOKEN (deben devolver 401)
 #############################################
 
 ### GET /usuarios/perfil — Sin token (esperado: 401)
