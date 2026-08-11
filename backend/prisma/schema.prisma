@@ -49,8 +49,12 @@ model Inmueble {
       petFriendly            Boolean @default(false)                                                                                            
       latitud                Decimal                                                                                                            
       longitud               Decimal                                                                                                            
-      url                    String?                                                                                                            
-      descripcion            String?                                                                                                             
-                                                                                                                                                 
-      usuario                Usuario @relation(fields: [usuarioId], references: [id], onDelete: Cascade)                                       
+      url                    String?
+      descripcion            String?
+      // URLs de Cloudinary. Sólo las escribe POST /inmuebles/:id/imagenes:
+      // no está en CreateInmuebleSchema a propósito, porque POST/PUT hacen
+      // spread del body y aceptarlas ahí sería dejar inyectar cualquier URL.
+      imagenes               String[] @default([])
+
+      usuario                Usuario @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
 }
