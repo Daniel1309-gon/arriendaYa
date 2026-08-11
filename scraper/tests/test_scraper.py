@@ -2,9 +2,11 @@ import unittest
 from datetime import datetime, timezone
 from unittest.mock import patch
 
-from models import InmuebleScraped
+from models import MAX_IMAGENES, InmuebleScraped
 from scrapers.fincaraiz import FincaraizScraper
 from utils.parsing import to_bool, to_float, to_int
+
+CDN = "https://cdn2.infocasas.com.uy/repo/img"
 
 
 class ParsingTests(unittest.TestCase):
@@ -62,6 +64,77 @@ class FincaraizMappingTests(unittest.TestCase):
         self.assertAlmostEqual(doc["longitud"], -74.0817)
         self.assertNotIn("@", doc["descripcion"])
         self.assertNotIn("320 123 4567", doc["descripcion"])
+
+    def test_map_item_collects_cover_first_then_gallery(self):
+        item = {
+            "id": 123,
+            "link": "/apartamento-ejemplo",
+            "price": {"amount": 2000000},
+            "m2": 50,
+            "img": f"{CDN}/portada.jpg",
+            "images": [
+                {"id": 1, "image": f"{CDN}/portada.jpg", "tag": ""},
+                {"id": 2, "image": f"{CDN}/segunda.jpg", "tag": ""},
+                {"id": 3, "image": f"{CDN}/tercera.jpg", "tag": ""},
+            ],
+        }
+
+        doc = self.scraper.map_item(item)
+
+        assert doc is not None
+        # La portada va primero y no se repite pese a estar también en images.
+        self.assertEqual(
+            doc["imagenes"],
+            [f"{CDN}/portada.jpg", f"{CDN}/segunda.jpg", f"{CDN}/tercera.jpg"],
+        )
+
+    def test_map_item_without_photos_is_still_valid(self):
+        doc = self.scraper.map_item(
+            {
+                "id": 123,
+                "link": "/apartamento-ejemplo",
+                "price": {"amount": 2000000},
+                "m2": 50,
+            }
+        )
+
+        assert doc is not None
+        self.assertEqual(doc["imagenes"], [])
+
+    def test_map_item_drops_untrusted_image_urls(self):
+        doc = self.scraper.map_item(
+            {
+                "id": 123,
+                "link": "/apartamento-ejemplo",
+                "price": {"amount": 2000000},
+                "m2": 50,
+                "images": [
+                    {"image": "https://evil.test/robo.jpg"},
+                    {"image": f"http://{CDN.removeprefix('https://')}/insegura.jpg"},
+                    {"image": "https://notinfocasas.com.uy/falso.jpg"},
+                    {"image": None},
+                    "https://cdn2.infocasas.com.uy/repo/img/ok.jpg",
+                ],
+            }
+        )
+
+        assert doc is not None
+        self.assertEqual(doc["imagenes"], ["https://cdn2.infocasas.com.uy/repo/img/ok.jpg"])
+
+    def test_map_item_truncates_gallery_to_ten(self):
+        doc = self.scraper.map_item(
+            {
+                "id": 123,
+                "link": "/apartamento-ejemplo",
+                "price": {"amount": 2000000},
+                "m2": 50,
+                "images": [{"image": f"{CDN}/foto{n}.jpg"} for n in range(25)],
+            }
+        )
+
+        assert doc is not None
+        self.assertEqual(len(doc["imagenes"]), MAX_IMAGENES)
+        self.assertEqual(doc["imagenes"][0], f"{CDN}/foto0.jpg")
 
     def test_map_item_rejects_external_url_and_outlier_price(self):
         base = {

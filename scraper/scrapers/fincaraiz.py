@@ -116,6 +116,32 @@ def _antiguedad_anios(sheet: dict) -> int | None:
     return None
 
 
+def _imagenes(item: dict) -> list[str]:
+    """URLs de las fotos del anuncio, portada primero.
+
+    El payload trae la galería en `images` (lista de {id, image, tag}) y repite
+    la portada en `img`; se antepone `img` para que la card no dependa del
+    orden de la galería. Se guarda la resolución original tal como la da el
+    portal: el thumbnail se deriva en el frontend insertando `th.outside{W}x{H}.`
+    después de /repo/img/, así el detalle puede pedir la grande sin re-scrapear.
+
+    No filtra nada: el saneo (https, host permitido, dedupe, tope de 10) vive en
+    InmuebleScraped._imagenes, que es quien también protege a los documentos que
+    ya están en Mongo.
+    """
+    urls: list[str] = []
+    portada = item.get("img")
+    if isinstance(portada, str):
+        urls.append(portada)
+    galeria = item.get("images")
+    if isinstance(galeria, list):
+        for entrada in galeria:
+            url = entrada.get("image") if isinstance(entrada, dict) else entrada
+            if isinstance(url, str):
+                urls.append(url)
+    return urls
+
+
 def _barrio(locations: dict, link: str | None) -> str | None:
     """Elige el barrio cuyo nombre aparece en el slug de la URL del anuncio.
 
@@ -417,6 +443,7 @@ class FincaraizScraper(BaseScraper):
             "latitud": to_float(item.get("latitude")),
             "longitud": to_float(item.get("longitude")),
             "descripcion": descripcion,
+            "imagenes": _imagenes(item),
             "barrio": _barrio(locations, link),
             "ciudad": _loc_name(locations, "city"),
             "fechaScraping": datetime.now(timezone.utc),

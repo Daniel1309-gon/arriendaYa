@@ -12,3 +12,4 @@ wheels/
 # Spike de verificación (fase 0, ver AGENTS.md / plan del scraper)
 _dump_sample.py
 _sample_dump.json
+scripts/_item_sample.json
