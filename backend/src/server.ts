@@ -4,6 +4,7 @@ import jwt from '@fastify/jwt';
 import { serializerCompiler, validatorCompiler, ZodTypeProvider } from 'fastify-type-provider-zod';
 import 'dotenv/config';
 import rateLimit from '@fastify/rate-limit';
+import multipart from '@fastify/multipart';
 
 import { prisma } from './db/prisma';
 import { connectToMongo } from './db/mongo';
@@ -13,6 +14,10 @@ import { authRoutes } from './modules/auth/auth.routes';
 import { usuariosRoutes } from './modules/usuarios/usuarios.routes';
 import { inmueblesRoutes } from './modules/inmuebles/inmuebles.routes';
 import { startDeletedAccountsPurgeJob } from './jobs/purge-deleted-accounts';
+import {
+    MAX_BYTES_POR_IMAGEN,
+    MAX_IMAGENES_POR_INMUEBLE,
+} from './modules/inmuebles/imagenes.service';
 
 const app = Fastify({ logger: true }).withTypeProvider<ZodTypeProvider>();
 
@@ -30,6 +35,21 @@ app.register(jwt, {
 app.register(rateLimit, {
     max: 50,
     timeWindow: "1 minute",
+});
+
+// Fotos de los inmuebles propios (POST /inmuebles/:id/imagenes). Los límites
+// van acá y no en la ruta para que el body se corte en el stream y los límites
+// se conviertan en errores 413 antes de procesar el contenido.
+app.register(multipart, {
+    throwFileSizeLimit: true,
+    limits: {
+        fileSize: MAX_BYTES_POR_IMAGEN,
+        files: MAX_IMAGENES_POR_INMUEBLE,
+        fields: 0,
+        parts: MAX_IMAGENES_POR_INMUEBLE,
+        fieldNameSize: 64,
+        headerPairs: 20,
+    },
 });
 
 app.get('/health', async (request, reply) => {
