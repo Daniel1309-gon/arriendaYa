@@ -103,4 +103,5 @@ Se consulta y respeta `robots.txt` de Fincaraiz antes de navegar, con rate limit
 ## Fuera de alcance (futuras fases)
 - Metrocuadrado u otros portales (la interfaz `scrapers/base.py` ya lo permite: `class MetrocuadradoScraper(BaseScraper)`).
 - Proxies, rotación de UA, captcha solving.
-- Scraping de imágenes (el schema actual no las contempla).
+- ~~Scraping de imágenes~~ — hecho: `InmuebleScraped.imagenes` guarda hasta 10 URLs
+  del CDN (`item.images[].image` + portada en `item.img`). Ver AGENTS.md.
