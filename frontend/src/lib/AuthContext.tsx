@@ -1,36 +1,10 @@
 import {
-  createContext,
   useCallback,
-  useContext,
   useEffect,
   useState,
 } from "react";
-import { Navigate } from "react-router-dom";
 import { auth, apiFetch } from "./api";
-
-interface User {
-  id: string;
-  email: string;
-  zonasInteres: string[];
-  edad: number | null;
-  ciudadOrigen: string | null;
-  telefono: string | null;
-  presupuestoMin: string | null;
-  presupuestoMax: string | null;
-  googleId: string | null;
-  fechaCreacion: string;
-}
-
-interface AuthContextValue {
-  user: User | null;
-  loading: boolean;
-  isAuthenticated: boolean;
-  login: (token: string) => void;
-  logout: () => void;
-  refreshUser: () => Promise<void>;
-}
-
-const AuthContext = createContext<AuthContextValue | null>(null);
+import { AuthContext, type User } from "./auth-context";
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -58,7 +32,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    refreshUser();
+    void Promise.resolve().then(() => refreshUser());
   }, [refreshUser]);
 
   const login = useCallback(
@@ -81,28 +55,4 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       {children}
     </AuthContext.Provider>
   );
-}
-
-export function useAuth() {
-  const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error("useAuth must be used within AuthProvider");
-  return ctx;
-}
-
-export function RequireAuth({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, loading } = useAuth();
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen bg-slate-50">
-        <div className="animate-spin w-8 h-8 border-3 border-emerald-700 border-t-transparent rounded-full" />
-      </div>
-    );
-  }
-
-  if (!isAuthenticated) {
-    return <Navigate to="/login" replace />;
-  }
-
-  return <>{children}</>;
 }
