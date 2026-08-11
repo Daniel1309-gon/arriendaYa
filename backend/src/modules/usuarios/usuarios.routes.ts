@@ -9,6 +9,10 @@ import {
   clearAccountRecoveryData,
 } from "../auth/account-recovery";
 import { sendAccountDeletionScheduledEmail } from "../../email/mailer";
+import {
+  serializarInmueblePropio,
+  serializarInmuebleScrapeado,
+} from "../inmuebles/inmuebles.serialize";
 
 const FRONTEND_URL =
   process.env.FRONTEND_URL || "http://localhost:5173";
@@ -135,7 +139,10 @@ export const usuariosRoutes: FastifyPluginAsyncZod = async (app) => {
         .toArray();
       return {
         success: true,
-        historial: [...inmueblesPostgres, ...inmueblesMongo],
+        historial: [
+          ...inmueblesPostgres.map(serializarInmueblePropio),
+          ...inmueblesMongo.map(serializarInmuebleScrapeado),
+        ],
       };
     },
   );
