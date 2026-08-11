@@ -1,4 +1,4 @@
-import { useAuth } from '../../lib/AuthContext';
+import { useAuth } from '../../lib/auth-context';
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Button } from '../ui/Button';
@@ -36,12 +36,20 @@ export function Navbar() {
 
         {isAuthenticated ? (
           <>
+            <Link to="/mis-inmuebles" className="text-slate-600 hover:text-emerald-700 transition-colors text-sm font-medium no-underline">
+              Mis inmuebles
+            </Link>
             <Link to="/perfil" className="text-slate-600 hover:text-emerald-700 transition-colors text-sm font-medium no-underline">
               Mi Perfil
             </Link>
             <span className="text-slate-400 text-sm font-medium">
               {user?.email}
             </span>
+            <Link to="/inmuebles/nuevo" className="no-underline">
+              <Button variant="primary" size="sm">
+                Publicar
+              </Button>
+            </Link>
             <Button variant="ghost" size="sm" onClick={handleLogout}>
               Cerrar sesión
             </Button>

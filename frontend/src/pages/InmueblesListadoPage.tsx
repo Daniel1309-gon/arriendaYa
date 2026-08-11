@@ -3,36 +3,11 @@ import { Navbar } from "../components/layout/Navbar";
 import { Footer } from "../components/layout/Footer";
 import { Button } from "../components/ui/Button";
 import { apiFetch } from "../lib/api";
+import type { Inmueble } from "../lib/inmuebles";
+import { InmuebleCard } from "../components/inmuebles/InmuebleCard";
 
-interface Inmueble {
-  id: string;
-  valorCanon: number | string;
-  administracionIncluida?: boolean;
-  valorAdministracion?: number | string;
-  tamanoM2: number;
-  habitaciones: number;
-  banos: number;
-  patio?: boolean;
-  parqueaderos?: number;
-  antiguedadAnos?: number;
-  estrato?: number;
-  piso?: number;
-  ascensor?: boolean;
-  petFriendly?: boolean;
-  latitud?: number | string;
-  longitud?: number | string;
-  url?: string;
-  descripcion?: string;
-  portalOrigen?: string;
-  urlOriginal?: string;
-  fechaScraping?: string;
-}
-
-const formatter = new Intl.NumberFormat("es-CO", {
-  style: "currency",
-  currency: "COP",
-  maximumFractionDigits: 0,
-});
+/** Cards de la primera fila en desktop: se cargan sin lazy porque son el LCP. */
+const CARDS_PRIORITARIAS = 3;
 
 export default function InmueblesListadoPage() {
   const [inmuebles, setInmuebles] = useState<Inmueble[]>([]);
@@ -65,7 +40,7 @@ export default function InmueblesListadoPage() {
   }, []);
 
   useEffect(() => {
-    buscar();
+    void Promise.resolve().then(() => buscar());
   }, [buscar]);
 
   const handleFilter = (e: React.FormEvent) => {
@@ -82,11 +57,6 @@ export default function InmueblesListadoPage() {
     setFiltros({ precioMin: "", precioMax: "", habitaciones: "", estrato: "" });
     buscar();
   };
-
-  const canon = (i: Inmueble) =>
-    typeof i.valorCanon === "string"
-      ? Number(i.valorCanon)
-      : i.valorCanon;
 
   return (
     <div className="bg-slate-50 font-sans text-slate-900 min-h-screen flex flex-col">
@@ -211,56 +181,12 @@ export default function InmueblesListadoPage() {
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {inmuebles.map((i) => (
-                <div
+              {inmuebles.map((i, indice) => (
+                <InmuebleCard
                   key={i.id}
-                  className="bg-white rounded-2xl shadow-sm hover:shadow-md border border-slate-100 overflow-hidden transition-all cursor-pointer"
-                >
-                  <div className="p-6">
-                    <div className="flex items-start justify-between mb-3">
-                      <span className="text-2xl font-bold text-emerald-700">
-                        {formatter.format(canon(i))}
-                      </span>
-                      {i.portalOrigen && (
-                        <span className="bg-slate-100 text-slate-600 px-2 py-1 rounded-full text-xs font-medium capitalize">
-                          {i.portalOrigen}
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex gap-4 text-sm text-slate-500 mb-3">
-                      <span>{i.habitaciones} hab</span>
-                      <span>{i.banos} baños</span>
-                      <span>{i.tamanoM2} m²</span>
-                    </div>
-                    {i.estrato && (
-                      <span className="inline-block bg-emerald-50 text-emerald-800 px-2 py-0.5 rounded text-xs font-medium mb-3">
-                        Estrato {i.estrato}
-                      </span>
-                    )}
-                    <div className="flex gap-2 flex-wrap text-xs text-slate-400">
-                      {i.petFriendly && (
-                        <span className="bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full">
-                          Pet friendly
-                        </span>
-                      )}
-                      {i.ascensor && (
-                        <span className="bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full">
-                          Ascensor
-                        </span>
-                      )}
-                      {i.patio && (
-                        <span className="bg-green-50 text-green-700 px-2 py-0.5 rounded-full">
-                          Patio
-                        </span>
-                      )}
-                    </div>
-                    {i.administracionIncluida && (
-                      <p className="text-xs text-slate-400 mt-2">
-                        Administración incluida
-                      </p>
-                    )}
-                  </div>
-                </div>
+                  inmueble={i}
+                  prioridad={indice < CARDS_PRIORITARIAS}
+                />
               ))}
             </div>
           )}

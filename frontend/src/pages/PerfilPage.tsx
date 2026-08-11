@@ -1,41 +1,33 @@
-import { useState, useEffect, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { Navbar } from "../components/layout/Navbar";
 import { Footer } from "../components/layout/Footer";
 import { Button } from "../components/ui/Button";
-import { useAuth, RequireAuth } from "../lib/AuthContext";
+import { RequireAuth } from "../lib/RequireAuth";
+import { useAuth, type User } from "../lib/auth-context";
 import { apiFetch, auth } from "../lib/api";
 import { DeleteAccountSection } from "../components/profile/DeleteAccountSection";
 
-export default function PerfilPage() {
-  const { user, refreshUser, logout } = useAuth();
+function formularioDeUsuario(user: User) {
+  return {
+    telefono: user.telefono ?? "",
+    edad: user.edad ?? "",
+    ciudadOrigen: user.ciudadOrigen ?? "",
+    presupuestoMin: user.presupuestoMin ?? "",
+    presupuestoMax: user.presupuestoMax ?? "",
+    zonasInteres: user.zonasInteres?.join(", ") ?? "",
+  };
+}
+
+function PerfilPageContenido({ user }: { user: User }) {
+  const { refreshUser, logout } = useAuth();
   const navigate = useNavigate();
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  const [form, setForm] = useState({
-    telefono: user?.telefono ?? "",
-    edad: user?.edad ?? "",
-    ciudadOrigen: user?.ciudadOrigen ?? "",
-    presupuestoMin: user?.presupuestoMin ?? "",
-    presupuestoMax: user?.presupuestoMax ?? "",
-    zonasInteres: user?.zonasInteres?.join(", ") ?? "",
-  });
-
-  useEffect(() => {
-    if (user) {
-      setForm({
-        telefono: user.telefono ?? "",
-        edad: user.edad ?? "",
-        ciudadOrigen: user.ciudadOrigen ?? "",
-        presupuestoMin: user.presupuestoMin ?? "",
-        presupuestoMax: user.presupuestoMax ?? "",
-        zonasInteres: user.zonasInteres?.join(", ") ?? "",
-      });
-    }
-  }, [user]);
+  const [form, setForm] = useState(() => formularioDeUsuario(user));
 
   const handleAccountDeleted = (eliminacionProgramadaEn: string) => {
     auth.clearToken();
@@ -84,8 +76,7 @@ export default function PerfilPage() {
     "w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-emerald-400 focus:border-emerald-400 outline-none transition-all bg-white text-slate-900 disabled:bg-slate-50 disabled:text-slate-500";
 
   return (
-    <RequireAuth>
-      <div className="bg-slate-50 font-sans text-slate-900 min-h-screen flex flex-col">
+    <div className="bg-slate-50 font-sans text-slate-900 min-h-screen flex flex-col">
         <Navbar />
         <main className="flex-grow pt-24 pb-16">
           <div className="max-w-2xl mx-auto px-4">
@@ -276,7 +267,27 @@ export default function PerfilPage() {
           </div>
         </main>
         <Footer />
-      </div>
+    </div>
+  );
+}
+
+export default function PerfilPage() {
+  const { user } = useAuth();
+  const versionUsuario = user
+    ? [
+        user.id,
+        user.telefono,
+        user.edad,
+        user.ciudadOrigen,
+        user.presupuestoMin,
+        user.presupuestoMax,
+        user.zonasInteres.join(","),
+      ].join(":")
+    : "sin-usuario";
+
+  return (
+    <RequireAuth>
+      {user ? <PerfilPageContenido key={versionUsuario} user={user} /> : null}
     </RequireAuth>
   );
 }

@@ -9,7 +9,7 @@ import { AccountRecoveryPanel } from "../components/auth/AccountRecoveryPanel";
 import { useOtpLogin } from "../hooks/useOtpLogin";
 import { useGoogleAuth } from "../hooks/useGoogleAuth";
 import { useAccountRecovery } from "../hooks/useAccountRecovery";
-import { useAuth } from "../lib/AuthContext";
+import { useAuth } from "../lib/auth-context";
 
 type AuthTab = "email" | "google";
 
