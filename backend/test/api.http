@@ -73,6 +73,27 @@ Content-Type: application/json
   "zonasInteres": ["chapinero", "usaquen", "cedritos"]
 }
 
+### PUT /usuarios/perfil — Rango de presupuesto invertido (PROTEGIDO)
+# Esperado: 400 { success: false, error: ... }, sin escritura
+PUT {{base}}/usuarios/perfil
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "presupuestoMin": 2000000,
+  "presupuestoMax": 500000
+}
+
+### PUT /usuarios/perfil — Monto de presupuesto negativo (PROTEGIDO)
+# Esperado: 400 (validación Zod, respuesta por defecto de Fastify)
+PUT {{base}}/usuarios/perfil
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "presupuestoMin": -100
+}
+
 ### POST /usuarios/historial — Agregar inmueble al historial (PROTEGIDO)
 POST {{base}}/usuarios/historial
 Authorization: Bearer {{token}}
