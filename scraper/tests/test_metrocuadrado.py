@@ -331,6 +331,14 @@ class MetrocuadradoPaginationTests(unittest.TestCase):
         self.assertEqual(result.next_page, 0)
         self.assertEqual(result.pages_fetched, 1)
         self.assertEqual(result.docs, [{"id": "metrocuadrado-one"}])
+        self.assertFalse(result.lease_lost)
+
+        with patch("scrapers.metrocuadrado.sync_playwright", return_value=Playwright()):
+            result = scraper.scrape(start_from=10, before_page=lambda: False)
+
+        self.assertTrue(result.aborted)
+        self.assertTrue(result.lease_lost)
+        self.assertEqual(result.next_page, 10)
 
 
 class BaseScraperHttpTests(unittest.TestCase):

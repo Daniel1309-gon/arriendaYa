@@ -443,6 +443,7 @@ class MetrocuadradoScraper(BaseScraper):
         completa = False
         aborted = False
         abort_reason: str | None = None
+        lease_lost = False
         reset_attempted = False
 
         with sync_playwright() as playwright:
@@ -460,6 +461,7 @@ class MetrocuadradoScraper(BaseScraper):
                     while pages_fetched < self.max_paginas:
                         if before_page is not None and not before_page():
                             aborted = True
+                            lease_lost = True
                             abort_reason = "se perdió el lease de scraping"
                             break
 
@@ -515,6 +517,7 @@ class MetrocuadradoScraper(BaseScraper):
 
                     if docs and not self._enrich_new_docs(page, docs, before_page):
                         aborted = True
+                        lease_lost = True
                         abort_reason = "se perdió el lease durante el enrich"
                 finally:
                     context.close()
@@ -531,4 +534,5 @@ class MetrocuadradoScraper(BaseScraper):
             mapped_items=mapped_items,
             aborted=aborted,
             abort_reason=abort_reason,
+            lease_lost=lease_lost,
         )

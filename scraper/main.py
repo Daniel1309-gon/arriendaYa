@@ -123,22 +123,35 @@ def run_scrape(portal: str) -> None:
                 )
                 return
 
+            nuevo_cursor = cursor
             try:
                 nuevos, actualizados = upsert_inmuebles(result.docs)
                 desactivados = 0
-                if result.aborted:
+                if result.lease_lost:
+                    # Otro proceso tiene el lease y rota el cursor; escribirlo
+                    # acá pisaría su avance.
                     log.warning(
-                        "Corrida parcial de %s: se guardan páginas válidas, pero "
-                        "no se marcan inactivos ni se mueve el cursor (%s)",
+                        "Corrida de %s perdió el lease: se guardan páginas válidas, "
+                        "pero no se mueve el cursor ni se marcan inactivos (%s)",
                         portal,
                         result.abort_reason or "motivo desconocido",
                     )
                 else:
-                    corte = datetime.now(timezone.utc) - timedelta(
-                        days=INACTIVE_AFTER_DAYS
-                    )
-                    desactivados = marcar_inactivos(portal, corte)
+                    if result.aborted:
+                        log.warning(
+                            "Corrida parcial de %s: se guardan páginas válidas y el "
+                            "cursor avanza hasta la última válida, pero no se "
+                            "marcan inactivos (%s)",
+                            portal,
+                            result.abort_reason or "motivo desconocido",
+                        )
+                    else:
+                        corte = datetime.now(timezone.utc) - timedelta(
+                            days=INACTIVE_AFTER_DAYS
+                        )
+                        desactivados = marcar_inactivos(portal, corte)
                     set_cursor(portal, result.next_page, result.last_page or 0)
+                    nuevo_cursor = result.next_page
             except Exception:
                 log.exception("Error guardando resultados de %s en Mongo", portal)
                 return
@@ -166,7 +179,7 @@ def run_scrape(portal: str) -> None:
                 desactivados,
                 len(result.docs),
                 cursor,
-                result.next_page,
+                nuevo_cursor,
                 f"/{result.last_page}" if result.last_page else "",
                 "completa" if result.completa else "parcial",
             )

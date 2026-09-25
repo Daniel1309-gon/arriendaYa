@@ -36,6 +36,8 @@ class ScrapeResult:
     mapped_items: int
     aborted: bool
     abort_reason: str | None = None
+    # Otro proceso tiene el lease: el cursor ya no es nuestro para escribir.
+    lease_lost: bool = False
 
 
 class BaseScraper:
