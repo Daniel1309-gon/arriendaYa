@@ -48,6 +48,10 @@ DETAIL_FIELDS = (
     "latitud",
     "longitud",
 )
+# Marca de que el detalle ya se visitó (aunque no trajera datos). No está en
+# InmuebleScraped a propósito: el doc del listado no debe traer la clave, o el
+# $set de upsert_inmuebles la borraría en cada refresco.
+DETAIL_ATTEMPT_FIELD = "detalleIntentadoEn"
 
 
 def _normalize_text(value) -> str:
@@ -194,7 +198,7 @@ def _merge_stored_detail(doc: dict, stored: dict | None) -> bool:
             doc[field] = value
             if field != "valorAdministracion":
                 has_detail = True
-    return has_detail
+    return has_detail or bool(stored and stored.get(DETAIL_ATTEMPT_FIELD))
 
 
 class MetrocuadradoScraper(BaseScraper):
@@ -373,10 +377,11 @@ class MetrocuadradoScraper(BaseScraper):
             doc["piso"] = floor
 
         try:
-            return InmuebleScraped(**doc).model_dump()
+            doc = InmuebleScraped(**doc).model_dump()
         except Exception as exc:
             log.warning("Detalle de %s descartado por validación: %s", external_id, exc)
-            return doc
+        doc[DETAIL_ATTEMPT_FIELD] = datetime.now(timezone.utc)
+        return doc
 
     def _enrich_new_docs(self, page: Page, docs: list[dict], before_page) -> bool:
         if not self.enrich_details or not docs:
@@ -413,6 +418,7 @@ class MetrocuadradoScraper(BaseScraper):
                 doc.update(self.enrich_doc(doc, html))
             except PageUnavailableException as exc:
                 log.warning("Detalle no disponible en %s, se omite: %s", detail_url, exc)
+                doc[DETAIL_ATTEMPT_FIELD] = datetime.now(timezone.utc)
             except BlockedException as exc:
                 log.warning("Enrich detenido por bloqueo en %s: %s", detail_url, exc)
                 return True

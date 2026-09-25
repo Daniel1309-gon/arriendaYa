@@ -1,4 +1,5 @@
 import unittest
+from datetime import datetime, timezone
 from unittest.mock import Mock, patch
 from urllib.parse import parse_qs, urlparse
 
@@ -451,6 +452,84 @@ class MetrocuadradoEnrichLoopTests(unittest.TestCase):
 
         self.assertEqual(scraper.fetched, [docs[0]["urlOriginal"]])
         self.assertNotIn("estrato", docs[1])
+        self.assertNotIn("detalleIntentadoEn", docs[0])
+
+    def test_unavailable_detail_is_marked_as_attempted(self):
+        docs = self._docs()
+        scraper = self._scraper(
+            {docs[0]["urlOriginal"]: PageUnavailableException("HTTP 404")}
+        )
+
+        with patch("db.get_existing_docs", return_value={}):
+            scraper._enrich_new_docs(object(), docs, None)
+
+        self.assertIsInstance(docs[0]["detalleIntentadoEn"], datetime)
+
+    def test_previously_attempted_detail_is_not_revisited(self):
+        docs = self._docs()
+        scraper = self._scraper({})
+        stored = {
+            docs[0]["id"]: {
+                "id": docs[0]["id"],
+                "estrato": None,
+                "detalleIntentadoEn": datetime.now(timezone.utc),
+            }
+        }
+
+        with patch("db.get_existing_docs", return_value=stored):
+            scraper._enrich_new_docs(object(), docs, None)
+
+        self.assertEqual(scraper.fetched, [docs[1]["urlOriginal"]])
+
+
+class MetrocuadradoDetailAttemptTests(unittest.TestCase):
+    def setUp(self):
+        self.scraper = MetrocuadradoScraper(
+            base_url="https://www.metrocuadrado.com/inmuebles/arriendo/apartamentos/bogota/",
+            search_url="https://www.metrocuadrado.com/rest-search/search",
+            api_key="test-key",
+            max_paginas=1,
+            delay_min=0,
+            delay_max=0,
+            headless=True,
+            user_agent="test-agent",
+        )
+        self.doc = {
+            "id": "metrocuadrado-M-1",
+            "portalOrigen": "metrocuadrado",
+            "urlOriginal": "https://www.metrocuadrado.com/inmueble/M-1",
+            "valorCanon": 2000000,
+            "tamanoM2": 50,
+            "banos": 1,
+        }
+
+    def test_empty_detail_is_marked_as_attempted(self):
+        html = r'''<script>self.__next_f.push([1,"15:[{\"propertyId\":\"M-1\"}]\n"])</script>'''
+
+        enriched = self.scraper.enrich_doc(self.doc, html)
+
+        self.assertIsNone(enriched["estrato"])
+        self.assertIsInstance(enriched["detalleIntentadoEn"], datetime)
+
+    def test_unparseable_detail_is_not_marked(self):
+        enriched = self.scraper.enrich_doc(self.doc, "<html>captcha</html>")
+
+        self.assertNotIn("detalleIntentadoEn", enriched)
+
+    def test_listing_refresh_does_not_overwrite_attempt_marker(self):
+        doc = self.scraper.map_item(
+            {
+                "midinmueble": "M-1",
+                "link": "/inmueble/M-1",
+                "mvalorarriendo": 2000000,
+                "marea": 50,
+            }
+        )
+
+        # upsert_inmuebles hace $set del doc: si trajera la clave (aunque
+        # fuera None) borraría la marca guardada.
+        assert doc is not None
+        self.assertNotIn("detalleIntentadoEn", doc)
 
 
 class ScraperDatabaseTests(unittest.TestCase):
@@ -471,6 +550,8 @@ class ScraperDatabaseTests(unittest.TestCase):
         self.assertEqual(docs["metrocuadrado-M-1"]["estrato"], 4)
         self.assertTrue(docs["metrocuadrado-M-1"]["ascensor"])
         self.assertEqual(docs["metrocuadrado-M-2"]["piso"], 8)
+        projection = collection.find.call_args.kwargs["projection"]
+        self.assertEqual(projection["detalleIntentadoEn"], 1)
 
 
 if __name__ == "__main__":
