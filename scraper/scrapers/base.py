@@ -17,6 +17,14 @@ class BlockedException(Exception):
     pass
 
 
+class PageUnavailableException(BlockedException):
+    """La página ya no existe (404/410 o redirección dentro del mismo sitio).
+
+    Hereda de BlockedException para que los llamadores que no la distinguen
+    sigan tratándola como bloqueo.
+    """
+
+
 @dataclass(frozen=True)
 class ScrapeResult:
     docs: list[dict]
@@ -118,17 +126,20 @@ class BaseScraper:
                     url, wait_until="domcontentloaded", timeout=60000
                 )
                 status = response.status if response else 0
+                if status in (404, 410):
+                    raise PageUnavailableException(f"HTTP {status} en {url}")
                 if 400 <= status < 500:
                     raise BlockedException(f"HTTP {status} en {url}")
                 if status >= 500:
                     raise RuntimeError(f"HTTP {status} en {url}")
-                if response is not None and (
-                    self._origin_of(page.url) != self._origin_of(url)
-                    or self._path_of(page.url) != self._path_of(url)
-                ):
-                    raise BlockedException(
-                        f"Redirección inesperada: se pidió {url} y se obtuvo {page.url}"
-                    )
+                if response is not None:
+                    redirect = f"se pidió {url} y se obtuvo {page.url}"
+                    if self._origin_of(page.url) != self._origin_of(url):
+                        raise BlockedException(f"Redirección inesperada: {redirect}")
+                    if self._path_of(page.url) != self._path_of(url):
+                        raise PageUnavailableException(
+                            f"Redirección dentro del sitio: {redirect}"
+                        )
                 return
             except BlockedException:
                 raise

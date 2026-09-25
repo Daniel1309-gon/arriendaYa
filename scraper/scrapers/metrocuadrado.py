@@ -13,7 +13,12 @@ from config import MAX_AREA_M2, MAX_CANON_S
 from models import InmuebleScraped
 from utils.parsing import first_int, to_float, to_int
 
-from .base import BaseScraper, BlockedException, ScrapeResult
+from .base import (
+    BaseScraper,
+    BlockedException,
+    PageUnavailableException,
+    ScrapeResult,
+)
 
 log = logging.getLogger("scraper")
 
@@ -406,6 +411,8 @@ class MetrocuadradoScraper(BaseScraper):
                 self.assert_robots_allowed(detail_url)
                 html = self.fetch_page_html(page, detail_url)
                 doc.update(self.enrich_doc(doc, html))
+            except PageUnavailableException as exc:
+                log.warning("Detalle no disponible en %s, se omite: %s", detail_url, exc)
             except BlockedException as exc:
                 log.warning("Enrich detenido por bloqueo en %s: %s", detail_url, exc)
                 return True
