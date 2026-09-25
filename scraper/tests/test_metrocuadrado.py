@@ -1,0 +1,347 @@
+import unittest
+from unittest.mock import Mock, patch
+from urllib.parse import parse_qs, urlparse
+
+from scrapers.metrocuadrado import (
+    MetrocuadradoScraper,
+    _merge_stored_detail,
+    parse_built_time,
+    parse_detail_html,
+)
+from models import InmuebleScraped
+from scrapers.base import BaseScraper, BlockedException
+
+
+class MetrocuadradoMappingTests(unittest.TestCase):
+    def setUp(self):
+        self.scraper = MetrocuadradoScraper(
+            base_url="https://www.metrocuadrado.com/inmuebles/arriendo/apartamentos/bogota/",
+            search_url="https://www.metrocuadrado.com/rest-search/search",
+            api_key="test-key",
+            max_paginas=1,
+            delay_min=0,
+            delay_max=0,
+            headless=True,
+            user_agent="test-agent",
+        )
+
+    def test_map_item_normalizes_listing_fields_and_sanitizes_contacts(self):
+        item = {
+            "midinmueble": "17556-M6950198",
+            "link": "/inmueble/arriendo-apartamento-bogota/17556-M6950198",
+            "mvalorarriendo": "$2.300.000",
+            "marea": "42.5 m²",
+            "mnrocuartos": "2",
+            "mnrobanos": "1",
+            "mnrogarajes": "1",
+            "mciudad": {"nombre": "Bogotá D.C."},
+            "mbarrio": "CHAPINERO",
+            "comment": "Escribe a ejemplo@test.com o llama al 320 123 4567.",
+            "data": {"mvaloradministracion": "$150.000"},
+            "contactPhone": "3201234567",
+            "whatsapp": "573201234567",
+            "imageLink": "https://multimedia.metrocuadrado.com/17556-M6950198/17556-M6950198_1_p.jpg",
+            "mgaleriainmueble": [
+                "17556-M6950198_1",
+                "17556-M6950198_2",
+                "17556-M6950198_3",
+            ],
+        }
+
+        doc = self.scraper.map_item(item)
+
+        self.assertIsNotNone(doc)
+        assert doc is not None
+        self.assertEqual(doc["id"], "metrocuadrado-17556-M6950198")
+        self.assertEqual(doc["portalOrigen"], "metrocuadrado")
+        self.assertEqual(doc["valorCanon"], 2300000)
+        self.assertEqual(doc["valorAdministracion"], 150000)
+        self.assertEqual(doc["tamanoM2"], 42.5)
+        self.assertEqual(doc["habitaciones"], 2)
+        self.assertEqual(doc["banos"], 1)
+        self.assertEqual(doc["parqueaderos"], 1)
+        self.assertEqual(doc["barrio"], "CHAPINERO")
+        self.assertEqual(doc["ciudad"], "Bogotá D.C.")
+        self.assertNotIn("@", doc["descripcion"])
+        self.assertNotIn("320 123 4567", doc["descripcion"])
+        self.assertNotIn("contactPhone", doc)
+        self.assertNotIn("whatsapp", doc)
+
+    def test_map_item_places_cover_first_deduplicates_and_caps_gallery(self):
+        item = {
+            "midinmueble": "M-1",
+            "link": "/inmueble/arriendo-apartamento-bogota/M-1",
+            "mvalorarriendo": 2000000,
+            "marea": 50,
+            "imageLink": "https://multimedia.metrocuadrado.com/M-1/M-1_1_p.jpg",
+            "mgaleriainmueble": [
+                "M-1_1",
+                *[f"M-1_{number}" for number in range(2, 15)],
+            ],
+        }
+
+        doc = self.scraper.map_item(item)
+
+        assert doc is not None
+        self.assertEqual(len(doc["imagenes"]), 10)
+        self.assertEqual(
+            doc["imagenes"][0],
+            "https://multimedia.metrocuadrado.com/M-1/M-1_1_p.jpg",
+        )
+        self.assertEqual(
+            doc["imagenes"][1],
+            "https://multimedia.metrocuadrado.com/M-1/M-1_2_p.jpg",
+        )
+
+    def test_map_item_rejects_invalid_listing_url_or_price(self):
+        base = {"midinmueble": "M-1", "mvalorarriendo": 2000000, "marea": 50}
+        self.assertIsNone(self.scraper.map_item({**base, "link": "https://evil.test/x"}))
+        self.assertIsNone(
+            self.scraper.map_item(
+                {**base, "link": "/inmueble/M-1", "mvalorarriendo": 0}
+            )
+        )
+
+
+class MetrocuadradoDetailTests(unittest.TestCase):
+    def setUp(self):
+        self.scraper = MetrocuadradoScraper(
+            base_url="https://www.metrocuadrado.com/inmuebles/arriendo/apartamentos/bogota/",
+            search_url="https://www.metrocuadrado.com/rest-search/search",
+            api_key="test-key",
+            max_paginas=1,
+            delay_min=0,
+            delay_max=0,
+            headless=True,
+            user_agent="test-agent",
+        )
+
+    def test_parse_built_time_uses_lower_bound(self):
+        self.assertEqual(parse_built_time("Entre 5 y 10 años"), 5)
+        self.assertEqual(parse_built_time("Más de 20 años"), 20)
+        self.assertEqual(parse_built_time("Nuevo"), 0)
+        self.assertIsNone(parse_built_time("sin información"))
+
+    def test_parse_detail_html_extracts_detail_data_from_rsc_payload(self):
+        html = r'''<script>self.__next_f.push([1,"15:[\"$\",{\"data\":{\"detail\":{\"adminPrice\":350000},\"propertyId\":\"M-1\",\"coordinates\":{\"lon\":-74.0817,\"lat\":4.6097},\"featured\":[{\"title\":\"Interiores\",\"items\":[\"Número de piso 7\",\"Se Permiten Mascotas\",\"Ascensor\"]}],\"builtTime\":\"Entre 5 y 10 años\",\"stratum\":\"4\",\"ubicacionaproximada\":\"N\"}}]\n"])</script>'''
+
+        detail = parse_detail_html(html, "M-1")
+
+        self.assertEqual(detail["coordinates"], {"lon": -74.0817, "lat": 4.6097})
+        self.assertEqual(detail["stratum"], "4")
+        self.assertEqual(detail["builtTime"], "Entre 5 y 10 años")
+        self.assertEqual(detail["detail"]["adminPrice"], 350000)
+
+    def test_enrich_doc_uses_exact_coordinates_and_characteristics(self):
+        html = r'''<script>self.__next_f.push([1,"15:[{\"detail\":{\"adminPrice\":350000},\"propertyId\":\"M-1\",\"coordinates\":{\"lon\":-74.0817,\"lat\":4.6097},\"featured\":[{\"title\":\"Interiores\",\"items\":[\"Número de piso 7\",\"Se Permiten Mascotas\",\"Ascensor\"]}],\"builtTime\":\"Entre 5 y 10 años\",\"stratum\":\"4\",\"ubicacionaproximada\":\"N\"}]\n"])</script>'''
+        doc = {
+            "id": "metrocuadrado-M-1",
+            "portalOrigen": "metrocuadrado",
+            "urlOriginal": "https://www.metrocuadrado.com/inmueble/M-1",
+            "valorCanon": 2000000,
+            "tamanoM2": 50,
+            "banos": 1,
+        }
+
+        enriched = self.scraper.enrich_doc(doc, html)
+
+        self.assertEqual(enriched["valorAdministracion"], 350000)
+        self.assertEqual(enriched["latitud"], 4.6097)
+        self.assertEqual(enriched["longitud"], -74.0817)
+        self.assertEqual(enriched["estrato"], 4)
+        self.assertEqual(enriched["antiguedadAnos"], 5)
+        self.assertEqual(enriched["piso"], 7)
+        self.assertTrue(enriched["ascensor"])
+        self.assertTrue(enriched["petFriendly"])
+
+    def test_approximate_coordinates_are_not_persisted(self):
+        html = r'''<script>self.__next_f.push([1,"15:[{\"propertyId\":\"M-1\",\"coordinates\":{\"lon\":-74.0817,\"lat\":4.6097},\"ubicacionaproximada\":\"S\"}]\n"])</script>'''
+        doc = {
+            "id": "metrocuadrado-M-1",
+            "portalOrigen": "metrocuadrado",
+            "urlOriginal": "https://www.metrocuadrado.com/inmueble/M-1",
+            "valorCanon": 2000000,
+            "tamanoM2": 50,
+            "banos": 1,
+        }
+
+        enriched = self.scraper.enrich_doc(doc, html)
+
+        self.assertIsNone(enriched["latitud"])
+        self.assertIsNone(enriched["longitud"])
+
+    def test_existing_detail_is_merged_without_being_erased_by_listing_update(self):
+        doc = {
+            "id": "metrocuadrado-M-1",
+            "estrato": None,
+            "ascensor": False,
+            "latitud": None,
+        }
+
+        has_detail = _merge_stored_detail(
+            doc,
+            {"estrato": 4, "ascensor": True, "latitud": 4.6},
+        )
+
+        self.assertTrue(has_detail)
+        self.assertEqual(doc["estrato"], 4)
+        self.assertTrue(doc["ascensor"])
+        self.assertEqual(doc["latitud"], 4.6)
+
+    def test_model_rejects_malformed_metro_image_path(self):
+        values = {
+            "id": "metrocuadrado-M-1",
+            "portalOrigen": "metrocuadrado",
+            "urlOriginal": "https://www.metrocuadrado.com/inmueble/M-1",
+            "valorCanon": 2000000,
+            "tamanoM2": 50,
+            "banos": 1,
+            "imagenes": [
+                "https://multimedia.metrocuadrado.com/M-1/M-1_1_p.jpg",
+                "https://multimedia.metrocuadrado.com/other/unsafe.jpg",
+                "https://multimedia.metrocuadrado.com/M-1/other_1_p.jpg",
+            ],
+        }
+
+        model = InmuebleScraped(**values)
+
+        self.assertEqual(
+            model.imagenes,
+            ["https://multimedia.metrocuadrado.com/M-1/M-1_1_p.jpg"],
+        )
+
+
+class MetrocuadradoPaginationTests(unittest.TestCase):
+    def test_search_url_sends_explicit_filters_and_offset(self):
+        scraper = MetrocuadradoScraper(
+            base_url="https://www.metrocuadrado.com/inmuebles/arriendo/apartamentos/bogota/",
+            search_url="https://www.metrocuadrado.com/rest-search/search",
+            api_key="test-key",
+            max_paginas=1,
+            delay_min=0,
+            delay_max=0,
+            headless=True,
+            user_agent="test-agent",
+            page_size=50,
+        )
+
+        query = parse_qs(urlparse(scraper._search_url(100)).query)
+
+        self.assertEqual(query["from"], ["100"])
+        self.assertEqual(query["size"], ["50"])
+        self.assertEqual(query["realEstateTypeList"], ["apartamento"])
+        self.assertEqual(query["realEstateBusinessList"], ["arriendo"])
+        self.assertEqual(query["city"], ["bogota"])
+
+    def test_stale_offset_wraps_to_zero(self):
+        class StubScraper(MetrocuadradoScraper):
+            def assert_robots_allowed(self, url):
+                return None
+
+            def navigate(self, page, url, attempts=2):
+                return None
+
+            def fetch_search_json(self, page, url, api_key, attempts=2):
+                offset = int(parse_qs(urlparse(url).query)["from"][0])
+                if offset > 0:
+                    return {"totalHits": 1, "totalEntries": 2, "results": []}
+                return {
+                    "totalHits": 1,
+                    "totalEntries": 2,
+                    "results": [{"id": "one"}],
+                }
+
+            def map_item(self, item):
+                return {"id": f"metrocuadrado-{item['id']}"}
+
+            def delay(self):
+                return None
+
+        class Context:
+            def new_page(self):
+                return object()
+
+            def close(self):
+                return None
+
+        class Browser:
+            def new_context(self, **kwargs):
+                return Context()
+
+            def close(self):
+                return None
+
+        class Playwright:
+            chromium = type(
+                "Chromium", (), {"launch": lambda self, **kwargs: Browser()}
+            )()
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return None
+
+        scraper = StubScraper(
+            base_url="https://www.metrocuadrado.com/inmuebles/arriendo/apartamentos/bogota/",
+            search_url="https://www.metrocuadrado.com/rest-search/search",
+            api_key="test-key",
+            max_paginas=2,
+            delay_min=0,
+            delay_max=0,
+            headless=True,
+            user_agent="test-agent",
+            page_size=2,
+            enrich_details=False,
+        )
+
+        with patch("scrapers.metrocuadrado.sync_playwright", return_value=Playwright()):
+            result = scraper.scrape(start_from=10)
+
+        self.assertTrue(result.completa)
+        self.assertEqual(result.next_page, 0)
+        self.assertEqual(result.pages_fetched, 1)
+        self.assertEqual(result.docs, [{"id": "metrocuadrado-one"}])
+
+
+class BaseScraperHttpTests(unittest.TestCase):
+    def test_search_http_4xx_is_blocked_instead_of_empty_results(self):
+        class Page:
+            def evaluate(self, script, argument):
+                return {"status": 422, "body": '{"results": []}'}
+
+        scraper = BaseScraper(
+            base_url="https://example.test/listado",
+            max_paginas=1,
+            delay_min=0,
+            delay_max=0,
+            headless=True,
+            user_agent="test-agent",
+        )
+
+        with self.assertRaises(BlockedException):
+            scraper.fetch_search_json(Page(), "https://example.test/api", "test-key")
+
+
+class ScraperDatabaseTests(unittest.TestCase):
+    def test_existing_docs_returns_only_requested_portal_fields(self):
+        import db
+
+        collection = Mock()
+        collection.find.return_value = [
+            {"id": "metrocuadrado-M-1", "estrato": 4, "ascensor": True},
+            {"id": "metrocuadrado-M-2", "piso": 8},
+        ]
+
+        with patch("db.get_collection", return_value=collection):
+            docs = db.get_existing_docs(
+                "metrocuadrado", ["metrocuadrado-M-1", "metrocuadrado-M-2"]
+            )
+
+        self.assertEqual(docs["metrocuadrado-M-1"]["estrato"], 4)
+        self.assertTrue(docs["metrocuadrado-M-1"]["ascensor"])
+        self.assertEqual(docs["metrocuadrado-M-2"]["piso"], 8)
+
+
+if __name__ == "__main__":
+    unittest.main()
