@@ -1,7 +1,6 @@
 import logging
 import re
 import unicodedata
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Callable
 from urllib.parse import urljoin, urlparse
@@ -12,7 +11,7 @@ from config import MAX_AREA_M2, MAX_CANON_S
 from models import InmuebleScraped
 from utils.parsing import first_int, to_bool, to_float, to_int
 
-from .base import BaseScraper, BlockedException
+from .base import BaseScraper, BlockedException, ScrapeResult
 
 log = logging.getLogger("scraper")
 
@@ -25,26 +24,6 @@ EMAIL_RE = re.compile(r"\b[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}\b")
 PHONE_RE = re.compile(
     r"(?<!\d)(?:\+?57[\s-]?)?3\d{2}[\s-]?\d{3}[\s-]?\d{4}(?!\d)"
 )
-
-
-@dataclass(frozen=True)
-class ScrapeResult:
-    docs: list[dict]
-    completa: bool
-    next_page: int
-    last_page: int | None
-    pages_fetched: int
-    raw_items: int
-    mapped_items: int
-    aborted: bool
-    abort_reason: str | None = None
-
-    def __iter__(self):
-        """Mantiene compatible la desestructuración histórica de cuatro valores."""
-        yield self.docs
-        yield self.completa
-        yield self.next_page
-        yield self.last_page
 
 
 def _technical_sheet_dict(item: dict) -> dict:
@@ -194,8 +173,7 @@ class FincaraizScraper(BaseScraper):
         Mongo): con un listado de N páginas, corridas sucesivas cubren
         rangos distintos hasta barrer el catálogo completo y envolver a 1.
 
-        Devuelve un ScrapeResult (compatible con la desestructuración histórica
-        de docs, completa, next_page y last_page):
+        Devuelve un ScrapeResult:
         - next_page: página desde la que arranca la próxima corrida
           (última página traída + 1, o 1 si se llegó al final del listado).
           Si no se pudo traer ninguna página (bloqueo inmediato), es igual
