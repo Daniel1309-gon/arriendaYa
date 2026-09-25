@@ -14,3 +14,10 @@ __pycache__/
 .DS_Store
 
 skills/
+
+openspec/
+
+# Herramientas locales
+.atl/
+.codegraph/
+.gga
