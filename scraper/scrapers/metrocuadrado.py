@@ -330,8 +330,9 @@ class MetrocuadradoScraper(BaseScraper):
             doc["valorAdministracion"] = admin_price
 
         # Metrocuadrado usa S para marcar ubicación aproximada; N significa
-        # que las coordenadas pueden mostrarse como exactas.
-        if detail.get("ubicacionaproximada") != "S":
+        # que las coordenadas pueden mostrarse como exactas. Cualquier otro
+        # valor (ausente, null, desconocido) se trata como aproximado.
+        if detail.get("ubicacionaproximada") == "N":
             coordinates = detail.get("coordinates")
             if isinstance(coordinates, dict):
                 latitude = to_float(coordinates.get("lat"))

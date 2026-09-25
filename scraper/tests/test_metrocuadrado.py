@@ -170,6 +170,34 @@ class MetrocuadradoDetailTests(unittest.TestCase):
         self.assertIsNone(enriched["latitud"])
         self.assertIsNone(enriched["longitud"])
 
+    def test_coordinates_without_exact_flag_are_not_persisted(self):
+        flags = {
+            "missing": "",
+            "null": r',\"ubicacionaproximada\":null',
+            "unknown": r',\"ubicacionaproximada\":\"X\"',
+        }
+        for label, flag in flags.items():
+            with self.subTest(flag=label):
+                html = (
+                    r'<script>self.__next_f.push([1,"15:[{\"propertyId\":\"M-1\",'
+                    r'\"coordinates\":{\"lon\":-74.0817,\"lat\":4.6097}'
+                    + flag
+                    + r'}]\n"])</script>'
+                )
+                doc = {
+                    "id": "metrocuadrado-M-1",
+                    "portalOrigen": "metrocuadrado",
+                    "urlOriginal": "https://www.metrocuadrado.com/inmueble/M-1",
+                    "valorCanon": 2000000,
+                    "tamanoM2": 50,
+                    "banos": 1,
+                }
+
+                enriched = self.scraper.enrich_doc(doc, html)
+
+                self.assertIsNone(enriched["latitud"])
+                self.assertIsNone(enriched["longitud"])
+
     def test_existing_detail_is_merged_without_being_erased_by_listing_update(self):
         doc = {
             "id": "metrocuadrado-M-1",
