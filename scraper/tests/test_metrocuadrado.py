@@ -379,12 +379,14 @@ class BaseScraperHttpTests(unittest.TestCase):
     def test_missing_page_is_unavailable_not_a_block(self):
         for status in (404, 410):
             with self.subTest(status=status):
-                with self.assertRaises(PageUnavailableException):
+                with self.assertRaises(PageUnavailableException) as ctx:
                     self._navigate(status, "https://example.test/inmueble/1")
+                self.assertEqual(ctx.exception.status, status)
 
     def test_same_origin_redirect_is_unavailable(self):
-        with self.assertRaises(PageUnavailableException):
+        with self.assertRaises(PageUnavailableException) as ctx:
             self._navigate(200, "https://example.test/inmuebles/arriendo")
+        self.assertIsNone(ctx.exception.status)
 
     def test_real_blocks_are_not_unavailable(self):
         cases = {
@@ -440,7 +442,7 @@ class MetrocuadradoEnrichLoopTests(unittest.TestCase):
     def test_unavailable_detail_is_skipped_and_enrich_continues(self):
         docs = self._docs()
         scraper = self._scraper(
-            {docs[0]["urlOriginal"]: PageUnavailableException("HTTP 404")}
+            {docs[0]["urlOriginal"]: PageUnavailableException("HTTP 404", 404)}
         )
 
         with patch("db.get_existing_docs", return_value={}):
@@ -465,13 +467,25 @@ class MetrocuadradoEnrichLoopTests(unittest.TestCase):
     def test_unavailable_detail_is_marked_as_attempted(self):
         docs = self._docs()
         scraper = self._scraper(
-            {docs[0]["urlOriginal"]: PageUnavailableException("HTTP 404")}
+            {docs[0]["urlOriginal"]: PageUnavailableException("HTTP 404", 404)}
         )
 
         with patch("db.get_existing_docs", return_value={}):
             scraper._enrich_new_docs(object(), docs, None)
 
         self.assertIsInstance(docs[0]["detalleIntentadoEn"], datetime)
+
+    def test_redirected_detail_is_skipped_but_retried_next_run(self):
+        docs = self._docs()
+        scraper = self._scraper(
+            {docs[0]["urlOriginal"]: PageUnavailableException("Redirección")}
+        )
+
+        with patch("db.get_existing_docs", return_value={}):
+            scraper._enrich_new_docs(object(), docs, None)
+
+        self.assertNotIn("detalleIntentadoEn", docs[0])
+        self.assertEqual(docs[1]["estrato"], 4)
 
     def test_previously_attempted_detail_is_not_revisited(self):
         docs = self._docs()

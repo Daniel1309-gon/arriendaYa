@@ -418,7 +418,9 @@ class MetrocuadradoScraper(BaseScraper):
                 doc.update(self.enrich_doc(doc, html))
             except PageUnavailableException as exc:
                 log.warning("Detalle no disponible en %s, se omite: %s", detail_url, exc)
-                doc[DETAIL_ATTEMPT_FIELD] = datetime.now(timezone.utc)
+                # Sólo un 404/410 es definitivo; una redirección se reintenta.
+                if exc.status is not None:
+                    doc[DETAIL_ATTEMPT_FIELD] = datetime.now(timezone.utc)
             except BlockedException as exc:
                 log.warning("Enrich detenido por bloqueo en %s: %s", detail_url, exc)
                 return True
