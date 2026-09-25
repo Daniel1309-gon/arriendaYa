@@ -487,6 +487,42 @@ class MetrocuadradoEnrichLoopTests(unittest.TestCase):
         self.assertNotIn("detalleIntentadoEn", docs[0])
         self.assertEqual(docs[1]["estrato"], 4)
 
+    def _assert_stored_detail_kept(self, scraper, docs):
+        stored = {docs[1]["id"]: {"id": docs[1]["id"], "estrato": 5, "ascensor": True}}
+        with patch("db.get_existing_docs", return_value=stored):
+            scraper._enrich_new_docs(object(), docs, None)
+        self.assertEqual(docs[1]["estrato"], 5)
+        self.assertTrue(docs[1]["ascensor"])
+
+    def test_stored_detail_survives_enrich_budget(self):
+        scraper = self._scraper({})
+        scraper.max_detail_items = 1
+        self._assert_stored_detail_kept(scraper, self._docs())
+
+    def test_stored_detail_survives_block(self):
+        docs = self._docs()
+        scraper = self._scraper({docs[0]["urlOriginal"]: BlockedException("HTTP 403")})
+        self._assert_stored_detail_kept(scraper, docs)
+
+    def test_stored_detail_survives_disabled_enrich(self):
+        scraper = self._scraper({})
+        scraper.enrich_details = False
+        self._assert_stored_detail_kept(scraper, self._docs())
+        self.assertEqual(scraper.fetched, [])
+
+    def test_lookup_failure_drops_empty_detail_fields(self):
+        docs = self._docs()
+        for doc in docs:
+            doc.update(estrato=None, ascensor=False, latitud=None, valorAdministracion=150000)
+        scraper = self._scraper({})
+
+        with patch("db.get_existing_docs", side_effect=RuntimeError("mongo caído")):
+            scraper._enrich_new_docs(object(), docs, None)
+
+        for doc in docs:
+            self.assertFalse({"estrato", "ascensor", "latitud"} & doc.keys())
+            self.assertEqual(doc["valorAdministracion"], 150000)
+
     def test_previously_attempted_detail_is_not_revisited(self):
         docs = self._docs()
         scraper = self._scraper({})
