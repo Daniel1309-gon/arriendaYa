@@ -67,6 +67,7 @@ export function urlHttpSegura(
 
 const HOST_CLOUDINARY = "res.cloudinary.com";
 const HOST_CLOUDFRONT = "d3s5pkt10pk3ga.cloudfront.net";
+const HOST_METROCUADRADO = "multimedia.metrocuadrado.com";
 
 function esHostPortal(host: string): boolean {
   return (
@@ -105,13 +106,18 @@ function parsearUrlImagen(url: string): URL | null {
     partes[3] === "upload" &&
     partes.length > 4 &&
     esFormatoRaster;
+  const esMetrocuadrado =
+    parsed.hostname === HOST_METROCUADRADO &&
+    /^\/([A-Za-z0-9][A-Za-z0-9_-]*)\/\1_\d+_p\.(?:jpe?g|png|webp)$/i.test(
+      parsed.pathname,
+    );
   const esPortal =
     (esHostPortal(parsed.hostname) || parsed.hostname === HOST_CLOUDFRONT) &&
     parsed.pathname.startsWith("/repo/img/") &&
     parsed.pathname.length > "/repo/img/".length &&
     esFormatoRaster;
 
-  return esCloudinary || esPortal ? parsed : null;
+  return esCloudinary || esPortal || esMetrocuadrado ? parsed : null;
 }
 
 /**
@@ -119,11 +125,13 @@ function parsearUrlImagen(url: string): URL | null {
  *
  * Guardamos la resolución original para que un futuro detalle o lightbox pueda
  * pedir la grande sin volver a scrapear, pero servirla en las cards costaría
- * ~420 KB por foto. Los dos CDN aceptan redimensionar por URL:
+ * ~420 KB por foto. Los CDN de los portales aceptan redimensionar por URL o
+ * ya entregan una variante liviana:
  *
  * - Portal: se inserta `th.outside{W}x{H}.` antes del nombre del archivo
  *   (la de 384x275 pesa ~18 KB, 23 veces menos que la original).
  * - Cloudinary: se inserta `f_auto,q_auto,c_limit,w_{W}` como transformación.
+ * - Metrocuadrado: las URLs `_p.jpg` ya son la variante liviana y se conservan.
  *
  * Una URL que no pertenezca a un origen HTTPS permitido se reemplaza por
  * `about:blank`; nunca se entrega directamente al atributo `src`.
@@ -143,6 +151,8 @@ export function imagenThumb(url: string, ancho = 384, alto = 275): string {
       .join("/")}`;
     return parsed.toString();
   }
+
+  if (parsed.hostname === HOST_METROCUADRADO) return parsed.toString();
 
   const ultimaBarra = parsed.pathname.lastIndexOf("/");
   const archivo = parsed.pathname.slice(ultimaBarra + 1);
