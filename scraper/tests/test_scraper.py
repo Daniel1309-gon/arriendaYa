@@ -259,6 +259,37 @@ class FincaraizMappingTests(unittest.TestCase):
         self.assertTrue(result.aborted)
         self.assertEqual(result.pages_fetched, 0)
         self.assertEqual(result.next_page, 1)
+        self.assertFalse(result.lease_lost)
+
+    def test_lease_loss_is_reported(self):
+        class Context:
+            def new_page(self):
+                return object()
+
+            def close(self):
+                return None
+
+        class Browser:
+            def new_context(self, **kwargs):
+                return Context()
+
+            def close(self):
+                return None
+
+        class Playwright:
+            chromium = type("Chromium", (), {"launch": lambda self, **kwargs: Browser()})()
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return None
+
+        with patch("scrapers.fincaraiz.sync_playwright", return_value=Playwright()):
+            result = self.scraper.scrape(3, before_page=lambda: False)
+        self.assertTrue(result.aborted)
+        self.assertTrue(result.lease_lost)
+        self.assertEqual(result.next_page, 3)
 
 
 class ModelValidationTests(unittest.TestCase):

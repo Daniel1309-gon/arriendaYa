@@ -384,7 +384,7 @@ class MetrocuadradoScraper(BaseScraper):
         return doc
 
     def _enrich_new_docs(self, page: Page, docs: list[dict], before_page) -> bool:
-        if not self.enrich_details or not docs:
+        if not docs:
             return True
 
         from db import get_existing_docs
@@ -394,19 +394,33 @@ class MetrocuadradoScraper(BaseScraper):
             existing = get_existing_docs(self.portal, list(unique_docs))
         except Exception:
             log.exception("No se pudieron consultar inmuebles existentes; se omite enrich")
+            # Sin saber qué hay guardado, se quitan los campos de detalle vacíos
+            # para que el $set del upsert no pise el detalle existente.
+            for doc in unique_docs.values():
+                for field in DETAIL_FIELDS:
+                    if doc.get(field) is None or doc.get(field) is False:
+                        doc.pop(field, None)
+            return True
+
+        # El detalle guardado se mezcla en todos los docs antes de cualquier
+        # corte (límite, bloqueo, lease, enrich apagado): los que se queden sin
+        # mezclar llevarían los defaults del listado y el upsert lo borraría.
+        pending = [
+            (doc_id, doc)
+            for doc_id, doc in unique_docs.items()
+            if not _merge_stored_detail(doc, existing.get(doc_id))
+        ]
+        if not self.enrich_details:
             return True
 
         detail_items = 0
-        for doc_id, doc in unique_docs.items():
+        for doc_id, doc in pending:
             if detail_items >= self.max_detail_items:
                 log.info(
                     "Límite de enrich alcanzado (%d inmuebles)",
                     self.max_detail_items,
                 )
                 return True
-            stored = existing.get(doc_id)
-            if _merge_stored_detail(doc, stored):
-                continue
             detail_items += 1
             if before_page is not None and not before_page():
                 log.warning("Se perdió el lease durante el enrich de Metrocuadrado")
@@ -418,7 +432,9 @@ class MetrocuadradoScraper(BaseScraper):
                 doc.update(self.enrich_doc(doc, html))
             except PageUnavailableException as exc:
                 log.warning("Detalle no disponible en %s, se omite: %s", detail_url, exc)
-                doc[DETAIL_ATTEMPT_FIELD] = datetime.now(timezone.utc)
+                # Sólo un 404/410 es definitivo; una redirección se reintenta.
+                if exc.status is not None:
+                    doc[DETAIL_ATTEMPT_FIELD] = datetime.now(timezone.utc)
             except BlockedException as exc:
                 log.warning("Enrich detenido por bloqueo en %s: %s", detail_url, exc)
                 return True
@@ -443,6 +459,7 @@ class MetrocuadradoScraper(BaseScraper):
         completa = False
         aborted = False
         abort_reason: str | None = None
+        lease_lost = False
         reset_attempted = False
 
         with sync_playwright() as playwright:
@@ -460,6 +477,7 @@ class MetrocuadradoScraper(BaseScraper):
                     while pages_fetched < self.max_paginas:
                         if before_page is not None and not before_page():
                             aborted = True
+                            lease_lost = True
                             abort_reason = "se perdió el lease de scraping"
                             break
 
@@ -515,6 +533,7 @@ class MetrocuadradoScraper(BaseScraper):
 
                     if docs and not self._enrich_new_docs(page, docs, before_page):
                         aborted = True
+                        lease_lost = True
                         abort_reason = "se perdió el lease durante el enrich"
                 finally:
                     context.close()
@@ -531,4 +550,5 @@ class MetrocuadradoScraper(BaseScraper):
             mapped_items=mapped_items,
             aborted=aborted,
             abort_reason=abort_reason,
+            lease_lost=lease_lost,
         )

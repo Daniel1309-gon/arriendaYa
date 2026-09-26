@@ -193,6 +193,7 @@ class FincaraizScraper(BaseScraper):
         pagina = max(1, start_page)
         aborted = False
         abort_reason: str | None = None
+        lease_lost = False
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=self.headless)
             try:
@@ -204,6 +205,7 @@ class FincaraizScraper(BaseScraper):
                     while pages_fetched < self.max_paginas:
                         if before_page is not None and not before_page():
                             aborted = True
+                            lease_lost = True
                             abort_reason = "se perdió el lease de scraping"
                             log.error("Se perdió el lease; abortando corrida")
                             break
@@ -307,6 +309,7 @@ class FincaraizScraper(BaseScraper):
             mapped_items=mapped_items,
             aborted=aborted,
             abort_reason=abort_reason,
+            lease_lost=lease_lost,
         )
 
     def extract_listings(self, next_data) -> tuple[list, dict]:

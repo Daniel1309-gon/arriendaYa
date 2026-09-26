@@ -331,6 +331,14 @@ class MetrocuadradoPaginationTests(unittest.TestCase):
         self.assertEqual(result.next_page, 0)
         self.assertEqual(result.pages_fetched, 1)
         self.assertEqual(result.docs, [{"id": "metrocuadrado-one"}])
+        self.assertFalse(result.lease_lost)
+
+        with patch("scrapers.metrocuadrado.sync_playwright", return_value=Playwright()):
+            result = scraper.scrape(start_from=10, before_page=lambda: False)
+
+        self.assertTrue(result.aborted)
+        self.assertTrue(result.lease_lost)
+        self.assertEqual(result.next_page, 10)
 
 
 class BaseScraperHttpTests(unittest.TestCase):
@@ -371,12 +379,14 @@ class BaseScraperHttpTests(unittest.TestCase):
     def test_missing_page_is_unavailable_not_a_block(self):
         for status in (404, 410):
             with self.subTest(status=status):
-                with self.assertRaises(PageUnavailableException):
+                with self.assertRaises(PageUnavailableException) as ctx:
                     self._navigate(status, "https://example.test/inmueble/1")
+                self.assertEqual(ctx.exception.status, status)
 
     def test_same_origin_redirect_is_unavailable(self):
-        with self.assertRaises(PageUnavailableException):
+        with self.assertRaises(PageUnavailableException) as ctx:
             self._navigate(200, "https://example.test/inmuebles/arriendo")
+        self.assertIsNone(ctx.exception.status)
 
     def test_real_blocks_are_not_unavailable(self):
         cases = {
@@ -432,7 +442,7 @@ class MetrocuadradoEnrichLoopTests(unittest.TestCase):
     def test_unavailable_detail_is_skipped_and_enrich_continues(self):
         docs = self._docs()
         scraper = self._scraper(
-            {docs[0]["urlOriginal"]: PageUnavailableException("HTTP 404")}
+            {docs[0]["urlOriginal"]: PageUnavailableException("HTTP 404", 404)}
         )
 
         with patch("db.get_existing_docs", return_value={}):
@@ -457,13 +467,61 @@ class MetrocuadradoEnrichLoopTests(unittest.TestCase):
     def test_unavailable_detail_is_marked_as_attempted(self):
         docs = self._docs()
         scraper = self._scraper(
-            {docs[0]["urlOriginal"]: PageUnavailableException("HTTP 404")}
+            {docs[0]["urlOriginal"]: PageUnavailableException("HTTP 404", 404)}
         )
 
         with patch("db.get_existing_docs", return_value={}):
             scraper._enrich_new_docs(object(), docs, None)
 
         self.assertIsInstance(docs[0]["detalleIntentadoEn"], datetime)
+
+    def test_redirected_detail_is_skipped_but_retried_next_run(self):
+        docs = self._docs()
+        scraper = self._scraper(
+            {docs[0]["urlOriginal"]: PageUnavailableException("Redirección")}
+        )
+
+        with patch("db.get_existing_docs", return_value={}):
+            scraper._enrich_new_docs(object(), docs, None)
+
+        self.assertNotIn("detalleIntentadoEn", docs[0])
+        self.assertEqual(docs[1]["estrato"], 4)
+
+    def _assert_stored_detail_kept(self, scraper, docs):
+        stored = {docs[1]["id"]: {"id": docs[1]["id"], "estrato": 5, "ascensor": True}}
+        with patch("db.get_existing_docs", return_value=stored):
+            scraper._enrich_new_docs(object(), docs, None)
+        self.assertEqual(docs[1]["estrato"], 5)
+        self.assertTrue(docs[1]["ascensor"])
+
+    def test_stored_detail_survives_enrich_budget(self):
+        scraper = self._scraper({})
+        scraper.max_detail_items = 1
+        self._assert_stored_detail_kept(scraper, self._docs())
+
+    def test_stored_detail_survives_block(self):
+        docs = self._docs()
+        scraper = self._scraper({docs[0]["urlOriginal"]: BlockedException("HTTP 403")})
+        self._assert_stored_detail_kept(scraper, docs)
+
+    def test_stored_detail_survives_disabled_enrich(self):
+        scraper = self._scraper({})
+        scraper.enrich_details = False
+        self._assert_stored_detail_kept(scraper, self._docs())
+        self.assertEqual(scraper.fetched, [])
+
+    def test_lookup_failure_drops_empty_detail_fields(self):
+        docs = self._docs()
+        for doc in docs:
+            doc.update(estrato=None, ascensor=False, latitud=None, valorAdministracion=150000)
+        scraper = self._scraper({})
+
+        with patch("db.get_existing_docs", side_effect=RuntimeError("mongo caído")):
+            scraper._enrich_new_docs(object(), docs, None)
+
+        for doc in docs:
+            self.assertFalse({"estrato", "ascensor", "latitud"} & doc.keys())
+            self.assertEqual(doc["valorAdministracion"], 150000)
 
     def test_previously_attempted_detail_is_not_revisited(self):
         docs = self._docs()

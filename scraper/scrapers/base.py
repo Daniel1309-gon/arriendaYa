@@ -21,8 +21,13 @@ class PageUnavailableException(BlockedException):
     """La página ya no existe (404/410 o redirección dentro del mismo sitio).
 
     Hereda de BlockedException para que los llamadores que no la distinguen
-    sigan tratándola como bloqueo.
+    sigan tratándola como bloqueo. `status` es el HTTP 404/410, o None si fue
+    una redirección (que podría ser un captcha y conviene reintentar).
     """
+
+    def __init__(self, message: str, status: int | None = None):
+        super().__init__(message)
+        self.status = status
 
 
 @dataclass(frozen=True)
@@ -36,6 +41,8 @@ class ScrapeResult:
     mapped_items: int
     aborted: bool
     abort_reason: str | None = None
+    # Otro proceso tiene el lease: el cursor ya no es nuestro para escribir.
+    lease_lost: bool = False
 
 
 class BaseScraper:
@@ -127,7 +134,7 @@ class BaseScraper:
                 )
                 status = response.status if response else 0
                 if status in (404, 410):
-                    raise PageUnavailableException(f"HTTP {status} en {url}")
+                    raise PageUnavailableException(f"HTTP {status} en {url}", status)
                 if 400 <= status < 500:
                     raise BlockedException(f"HTTP {status} en {url}")
                 if status >= 500:
