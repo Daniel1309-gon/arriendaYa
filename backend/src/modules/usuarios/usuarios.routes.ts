@@ -13,6 +13,7 @@ import {
   serializarInmueblePropio,
   serializarInmuebleScrapeado,
 } from "../inmuebles/inmuebles.serialize";
+import { validatePresupuestoRange } from "./usuarios.service";
 
 const FRONTEND_URL =
   process.env.FRONTEND_URL || "http://localhost:5173";
@@ -22,8 +23,8 @@ const UpdatePerfilSchema = z.object({
   edad: z.number().int().optional(),
   ciudadOrigen: z.string().optional(),
   telefono: z.string().optional(),
-  presupuestoMin: z.number().optional(),
-  presupuestoMax: z.number().optional(),
+  presupuestoMin: z.number().nonnegative().optional(),
+  presupuestoMax: z.number().nonnegative().optional(),
 });
 
 const AddHistorialSchema = z.object({
@@ -70,6 +71,21 @@ export const usuariosRoutes: FastifyPluginAsyncZod = async (app) => {
     async (request, reply) => {
       const userId = request.user.id;
       const dataToUpdate = request.body;
+
+      if (
+        dataToUpdate.presupuestoMin !== undefined ||
+        dataToUpdate.presupuestoMax !== undefined
+      ) {
+        // ponytail: read-then-write race; DB CHECK (presupuestoMin <= presupuestoMax) is the follow-up
+        const actual = await prisma.usuario.findUnique({
+          where: { id: userId },
+          select: { presupuestoMin: true, presupuestoMax: true },
+        });
+        const error = validatePresupuestoRange(actual, dataToUpdate);
+        if (error) {
+          return reply.status(400).send({ success: false, error });
+        }
+      }
 
       const perfilActualizado = await prisma.usuario.update({
         where: { id: userId },
