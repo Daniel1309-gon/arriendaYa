@@ -341,6 +341,72 @@ class MetrocuadradoPaginationTests(unittest.TestCase):
         self.assertEqual(result.next_page, 10)
 
 
+class MetrocuadradoEmptyPageTests(unittest.TestCase):
+    def _scrape(self, pages):
+        class StubScraper(MetrocuadradoScraper):
+            def assert_robots_allowed(self, url):
+                return None
+
+            def navigate(self, page, url, attempts=2):
+                return None
+
+            def fetch_search_json(self, page, url, api_key, attempts=2):
+                return pages[int(parse_qs(urlparse(url).query)["from"][0])]
+
+            def map_item(self, item):
+                return {"id": f"metrocuadrado-{item['id']}"}
+
+            def delay(self):
+                return None
+
+        browser = Mock()
+        browser.new_context.return_value.new_page.return_value = object()
+        playwright = Mock()
+        playwright.__enter__ = Mock(return_value=playwright)
+        playwright.__exit__ = Mock(return_value=None)
+        playwright.chromium.launch.return_value = browser
+        scraper = StubScraper(
+            base_url="https://www.metrocuadrado.com/inmuebles/arriendo/apartamentos/bogota/",
+            search_url="https://www.metrocuadrado.com/rest-search/search",
+            api_key="test-key",
+            max_paginas=5,
+            delay_min=0,
+            delay_max=0,
+            headless=True,
+            user_agent="test-agent",
+            page_size=2,
+            enrich_details=False,
+        )
+        with patch("scrapers.metrocuadrado.sync_playwright", return_value=playwright):
+            return scraper.scrape(start_from=0)
+
+    def test_empty_page_before_total_aborts_without_resetting_cursor(self):
+        result = self._scrape(
+            {
+                0: {"totalHits": 10, "totalEntries": 10, "results": [{"id": 1}, {"id": 2}]},
+                2: {"totalHits": 10, "totalEntries": 10, "results": []},
+            }
+        )
+
+        self.assertTrue(result.aborted)
+        self.assertFalse(result.completa)
+        self.assertFalse(result.lease_lost)
+        self.assertEqual(result.next_page, 2)
+        self.assertIn("offset 2", result.abort_reason)
+
+    def test_empty_page_at_total_is_end_of_catalog(self):
+        result = self._scrape(
+            {
+                0: {"totalHits": 2, "totalEntries": 10, "results": [{"id": 1}, {"id": 2}]},
+                2: {"totalHits": 2, "totalEntries": 10, "results": []},
+            }
+        )
+
+        self.assertFalse(result.aborted)
+        self.assertTrue(result.completa)
+        self.assertEqual(result.next_page, 0)
+
+
 class BaseScraperHttpTests(unittest.TestCase):
     def test_search_http_4xx_is_blocked_instead_of_empty_results(self):
         class Page:
@@ -487,6 +553,31 @@ class MetrocuadradoEnrichLoopTests(unittest.TestCase):
         self.assertNotIn("detalleIntentadoEn", docs[0])
         self.assertEqual(docs[1]["estrato"], 4)
 
+    def _run_statuses(self, statuses):
+        docs = [
+            {"id": f"metrocuadrado-M-{n}", "urlOriginal": f"https://www.metrocuadrado.com/inmueble/M-{n}"}
+            for n in range(len(statuses) + 1)
+        ]
+        scraper = self._scraper(
+            {
+                doc["urlOriginal"]: PageUnavailableException("no disponible", status)
+                for doc, status in zip(docs, statuses)
+            }
+        )
+        with patch("db.get_existing_docs", return_value={}):
+            self.assertTrue(scraper._enrich_new_docs(object(), docs, None))
+        return scraper.fetched, docs
+
+    def test_repeated_redirects_stop_enrich(self):
+        fetched, docs = self._run_statuses([None, None, None])
+
+        self.assertEqual(fetched, [doc["urlOriginal"] for doc in docs[:3]])
+
+    def test_missing_page_resets_redirect_streak(self):
+        fetched, docs = self._run_statuses([None, None, 404, None])
+
+        self.assertEqual(fetched, [doc["urlOriginal"] for doc in docs])
+
     def _assert_stored_detail_kept(self, scraper, docs):
         stored = {docs[1]["id"]: {"id": docs[1]["id"], "estrato": 5, "ascensor": True}}
         with patch("db.get_existing_docs", return_value=stored):
@@ -610,6 +701,19 @@ class ScraperDatabaseTests(unittest.TestCase):
         self.assertEqual(docs["metrocuadrado-M-2"]["piso"], 8)
         projection = collection.find.call_args.kwargs["projection"]
         self.assertEqual(projection["detalleIntentadoEn"], 1)
+
+    def test_cursor_without_last_page_keeps_stored_value(self):
+        import db
+
+        collection = Mock()
+        with patch("db.get_meta_collection", return_value=collection):
+            db.set_cursor("metrocuadrado", 150, None)
+            db.set_cursor("metrocuadrado", 0, 40)
+
+        unknown, known = (c.args[1]["$set"] for c in collection.update_one.call_args_list)
+        self.assertEqual(unknown["nextPage"], 150)
+        self.assertNotIn("lastPage", unknown)
+        self.assertEqual(known["lastPage"], 40)
 
 
 if __name__ == "__main__":

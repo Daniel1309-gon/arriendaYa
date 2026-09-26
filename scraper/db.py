@@ -156,17 +156,14 @@ def get_cursor(portal: str) -> int:
     return 0
 
 
-def set_cursor(portal: str, next_page: int, last_page: int) -> None:
+def set_cursor(portal: str, next_page: int, last_page: int | None) -> None:
+    campos = {"nextPage": next_page, "actualizadoEn": datetime.now(timezone.utc)}
+    # Sin lastPage (p. ej. corrida cortada antes de leerlo) se conserva el
+    # guardado en vez de pisarlo con 0.
+    if last_page is not None:
+        campos["lastPage"] = last_page
     get_meta_collection().update_one(
-        {"_id": f"cursor:{portal}"},
-        {
-            "$set": {
-                "nextPage": next_page,
-                "lastPage": last_page,
-                "actualizadoEn": datetime.now(timezone.utc),
-            }
-        },
-        upsert=True,
+        {"_id": f"cursor:{portal}"}, {"$set": campos}, upsert=True
     )
 
 

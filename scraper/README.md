@@ -30,7 +30,8 @@ conservan los datos del listado. Un detalle que ya no existe (404/410 o
 redirección dentro del sitio) se omite sin detener el resto; cada detalle
 visitado o con 404/410 queda marcado con `detalleIntentadoEn` para no
 revisitarlo en cada corrida aunque no traiga datos. Una redirección no se
-marca (podría ser un captcha) y se reintenta en la próxima corrida.
+marca (podría ser un captcha) y se reintenta en la próxima corrida; tres
+redirecciones seguidas detienen el enrich como un bloqueo.
 
 La API actual requiere `size=50` para devolver resultados. Los filtros se envían
 explícitamente como `realEstateTypeList`, `realEstateBusinessList` y `city`;
@@ -98,7 +99,8 @@ guarda el offset `from` (`cursor:metrocuadrado`). Ambos envuelven al inicio al
 llegar al final del listado.
 
 El período de barrido se calcula con el `lastPage` informado por el portal.
-Si una corrida se corta (bloqueo, paginación inconsistente), se guardan las
+Si una corrida se corta (bloqueo, paginación inconsistente o, en
+Metrocuadrado, una página vacía antes del total informado), se guardan las
 páginas válidas y el cursor avanza hasta la primera página u offset que falló,
 pero no se marcan inmuebles como inactivos. Si la corrida pierde el lease, el
 cursor no se toca: otro proceso lo está rotando.
