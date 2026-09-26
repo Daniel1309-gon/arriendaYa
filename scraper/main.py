@@ -13,6 +13,11 @@ from config import (
     MIN_ITEMS_PER_RUN,
     MIN_MAPPED_RATIO,
     MAX_PAGINAS,
+    METROCUADRADO_API_KEY,
+    METROCUADRADO_BASE_URL,
+    METROCUADRADO_ENRICH_DETAILS,
+    METROCUADRADO_MAX_DETAIL_ITEMS,
+    METROCUADRADO_SEARCH_URL,
     SCRAPE_LEASE_TTL_S,
     SCRAPE_INTERVAL_HOURS,
     USER_AGENT,
@@ -29,6 +34,7 @@ from db import (
     upsert_inmuebles,
 )
 from scrapers.fincaraiz import FincaraizScraper
+from scrapers.metrocuadrado import MetrocuadradoScraper
 
 logging.basicConfig(
     level=logging.INFO,
@@ -37,40 +43,59 @@ logging.basicConfig(
 log = logging.getLogger("scraper")
 
 
-def run_scrape() -> None:
-    log.info("=== Iniciando corrida de scraping ===")
+def _build_scraper(portal: str):
+    if portal == "fincaraiz":
+        return FincaraizScraper(
+            base_url=FINCARAIZ_BASE_URL,
+            max_paginas=MAX_PAGINAS,
+            delay_min=DELAY_MIN_S,
+            delay_max=DELAY_MAX_S,
+            headless=HEADLESS,
+            user_agent=USER_AGENT,
+        )
+    if portal == "metrocuadrado":
+        return MetrocuadradoScraper(
+            base_url=METROCUADRADO_BASE_URL,
+            search_url=METROCUADRADO_SEARCH_URL,
+            api_key=METROCUADRADO_API_KEY,
+            max_paginas=MAX_PAGINAS,
+            delay_min=DELAY_MIN_S,
+            delay_max=DELAY_MAX_S,
+            headless=HEADLESS,
+            user_agent=USER_AGENT,
+            enrich_details=METROCUADRADO_ENRICH_DETAILS,
+            max_detail_items=METROCUADRADO_MAX_DETAIL_ITEMS,
+        )
+    raise ValueError(f"Portal no soportado: {portal}")
+
+
+def run_scrape(portal: str) -> None:
+    log.info("=== Iniciando corrida de %s ===", portal)
     owner = uuid.uuid4().hex
 
     try:
-        if not acquire_scrape_lease("fincaraiz", owner, SCRAPE_LEASE_TTL_S):
-            log.warning("Ya existe otra corrida de Fincaraiz; se omite esta ejecución")
+        if not acquire_scrape_lease(portal, owner, SCRAPE_LEASE_TTL_S):
+            log.warning("Ya existe otra corrida de %s; se omite esta ejecución", portal)
             return
         try:
             ensure_indexes()
 
             try:
-                cursor = get_cursor("fincaraiz")
+                cursor = get_cursor(portal)
             except Exception:
-                log.exception("No se pudo leer el cursor; no se hará scraping")
+                log.exception("No se pudo leer el cursor de %s; no se hará scraping", portal)
                 return
 
-            scraper = FincaraizScraper(
-                base_url=FINCARAIZ_BASE_URL,
-                max_paginas=MAX_PAGINAS,
-                delay_min=DELAY_MIN_S,
-                delay_max=DELAY_MAX_S,
-                headless=HEADLESS,
-                user_agent=USER_AGENT,
-            )
+            scraper = _build_scraper(portal)
             try:
                 result = scraper.scrape(
                     cursor,
                     before_page=lambda: renew_scrape_lease(
-                        "fincaraiz", owner, SCRAPE_LEASE_TTL_S
+                        portal, owner, SCRAPE_LEASE_TTL_S
                     ),
                 )
             except Exception:
-                log.exception("Error en corrida de scraping")
+                log.exception("Error en corrida de scraping de %s", portal)
                 return
 
             if not result.docs:
@@ -103,18 +128,19 @@ def run_scrape() -> None:
                 desactivados = 0
                 if result.aborted:
                     log.warning(
-                        "Corrida parcial: se guardan páginas válidas, pero no se "
-                        "marcan inactivos (%s)",
+                        "Corrida parcial de %s: se guardan páginas válidas, pero "
+                        "no se marcan inactivos ni se mueve el cursor (%s)",
+                        portal,
                         result.abort_reason or "motivo desconocido",
                     )
                 else:
                     corte = datetime.now(timezone.utc) - timedelta(
                         days=INACTIVE_AFTER_DAYS
                     )
-                    desactivados = marcar_inactivos("fincaraiz", corte)
-                set_cursor("fincaraiz", result.next_page, result.last_page or 0)
+                    desactivados = marcar_inactivos(portal, corte)
+                    set_cursor(portal, result.next_page, result.last_page or 0)
             except Exception:
-                log.exception("Error guardando resultados en Mongo")
+                log.exception("Error guardando resultados de %s en Mongo", portal)
                 return
 
             if result.last_page:
@@ -132,8 +158,9 @@ def run_scrape() -> None:
                     )
 
             log.info(
-                "Resumen: %d nuevos, %d actualizados, %d desactivados "
-                "(%d items, páginas %d→%d%s, corrida %s)",
+                "Resumen %s: %d nuevos, %d actualizados, %d desactivados "
+                "(%d items, cursor %d→%d%s, corrida %s)",
+                portal,
                 nuevos,
                 actualizados,
                 desactivados,
@@ -144,17 +171,22 @@ def run_scrape() -> None:
                 "completa" if result.completa else "parcial",
             )
         finally:
-            release_scrape_lease("fincaraiz", owner)
+            release_scrape_lease(portal, owner)
     except Exception:
-        log.exception("Error no controlado en la corrida de scraping")
+        log.exception("Error no controlado en la corrida de %s", portal)
+
+
+def run_all_scrapes() -> None:
+    for portal in ("fincaraiz", "metrocuadrado"):
+        run_scrape(portal)
 
 
 if __name__ == "__main__":
-    log.info("Scraper Rentia — Fincaraiz")
+    log.info("Scraper Rentia — Fincaraiz + Metrocuadrado")
 
     scheduler = BlockingScheduler()
     scheduler.add_job(
-        run_scrape,
+        run_all_scrapes,
         "interval",
         hours=SCRAPE_INTERVAL_HOURS,
         next_run_time=datetime.now(),  # corre inmediatamente al arrancar

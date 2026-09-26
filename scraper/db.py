@@ -149,11 +149,11 @@ def upsert_inmuebles(docs: list[dict]) -> tuple[int, int]:
 
 
 def get_cursor(portal: str) -> int:
-    """Página desde la que arranca la próxima corrida (rotación de ventana)."""
+    """Posición desde la que arranca la próxima corrida (rotación de ventana)."""
     doc = get_meta_collection().find_one({"_id": f"cursor:{portal}"})
-    if doc and isinstance(doc.get("nextPage"), int) and doc["nextPage"] >= 1:
+    if doc and isinstance(doc.get("nextPage"), int) and doc["nextPage"] >= 0:
         return doc["nextPage"]
-    return 1
+    return 0
 
 
 def set_cursor(portal: str, next_page: int, last_page: int) -> None:
@@ -168,6 +168,30 @@ def set_cursor(portal: str, next_page: int, last_page: int) -> None:
         },
         upsert=True,
     )
+
+
+def get_existing_docs(portal: str, ids: list[str]) -> dict[str, dict]:
+    if not ids:
+        return {}
+    rows = get_collection().find(
+        {"portalOrigen": portal, "id": {"$in": ids}},
+        projection={
+            "_id": 0,
+            "id": 1,
+            "valorAdministracion": 1,
+            "antiguedadAnos": 1,
+            "estrato": 1,
+            "piso": 1,
+            "patio": 1,
+            "ascensor": 1,
+            "petFriendly": 1,
+            "latitud": 1,
+            "longitud": 1,
+        },
+    )
+    return {
+        row["id"]: row for row in rows if isinstance(row.get("id"), str)
+    }
 
 
 def acquire_scrape_lease(portal: str, owner: str, ttl_seconds: int) -> bool:

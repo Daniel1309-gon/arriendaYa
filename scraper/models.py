@@ -1,16 +1,23 @@
+import re
 from datetime import datetime, timezone
 from urllib.parse import urlparse
 
 from pydantic import BaseModel, ConfigDict, Field, FiniteFloat, field_validator
 
 MAX_IMAGENES = 10
-# Las fotos de Fincaraiz las sirve el CDN de InfoCasas (opera el portal), y
-# los anuncios más nuevos salen por CloudFront. Se guarda la URL, no el
-# archivo: la card hace hotlink contra estos hosts, así que la lista es a la
-# vez whitelist de origen y defensa contra que el payload nos cuele cualquier
-# otra URL.
+# Las fotos scrapeadas se sirven desde los CDN de los portales (InfoCasas,
+# CloudFront o Metrocuadrado). Se guarda la URL, no el archivo: la card hace
+# hotlink contra estos hosts, así que la lista es a la vez whitelist de origen
+# y defensa contra que el payload nos cuele cualquier otra URL.
 IMAGE_HOST_SUFFIXES = (".infocasas.com.uy", ".fincaraiz.com.co")
-IMAGE_HOSTS = frozenset({"d3s5pkt10pk3ga.cloudfront.net"})
+IMAGE_HOSTS = frozenset(
+    {"d3s5pkt10pk3ga.cloudfront.net", "multimedia.metrocuadrado.com"}
+)
+METRO_IMAGE_PATH_RE = re.compile(
+    r"/([A-Za-z0-9][A-Za-z0-9_-]*)/"
+    r"\1_\d+_p\.(?:jpe?g|png|webp)$",
+    re.IGNORECASE,
+)
 
 
 class InmuebleScraped(BaseModel):
@@ -74,6 +81,10 @@ class InmuebleScraped(BaseModel):
             if parsed.scheme != "https":
                 continue
             if host not in IMAGE_HOSTS and not host.endswith(IMAGE_HOST_SUFFIXES):
+                continue
+            if host == "multimedia.metrocuadrado.com" and not METRO_IMAGE_PATH_RE.fullmatch(
+                parsed.path
+            ):
                 continue
             vistas.add(url)
             urls.append(url)

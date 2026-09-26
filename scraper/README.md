@@ -3,7 +3,7 @@
 Scraper de portales de arriendo para Bogotá. Persiste en MongoDB (colección
 `inmuebles_scrapeados`) y se ejecuta cada 3 horas con APScheduler.
 
-## Portal actual
+## Portales
 
 **Fincaraiz** (`/arriendo/...`). Se parsea el JSON embebido en `__NEXT_DATA__`
 de las páginas de listado, que ya contiene todos los campos requeridos
@@ -16,9 +16,25 @@ La paginación es **por path** (`…/bogota-dc/pagina2`); el query param
 sufijo.
 
 Antes de navegar se consulta `robots.txt` y se rechazan rutas no permitidas,
-con rate limiting conservador (delays 2–5 s). La URL configurada debe ser
-HTTPS, pertenecer a Fincaraiz y no llevar query ni fragmento. Metrocuadrado
-queda fuera: prohíbe la ruta de resultados en su `robots.txt` y usa Incapsula.
+con rate limiting conservador (delays 2–5 s). Las URLs configuradas deben ser
+HTTPS y no llevar query ni fragmento.
+
+**Metrocuadrado** (`/inmuebles/...`) usa el API `rest-search/search` desde su
+frontend Next.js. El scraper abre primero el listado con Playwright y ejecuta
+el API dentro del mismo contexto con `X-Api-Key`, guardando la respuesta de
+listado en Mongo. La paginación es por offset (`from`/`size`) y el cursor se
+persiste como `cursor:metrocuadrado`. Los inmuebles nuevos se visitan también
+en `/inmueble/...` para extraer coordenadas exactas, estrato, piso,
+antigüedad, administración y características. Si el detalle falla, se
+conservan los datos del listado.
+
+La API actual requiere `size=50` para devolver resultados. Los filtros se envían
+explícitamente como `realEstateTypeList`, `realEstateBusinessList` y `city`;
+esto permite que `from` avance correctamente entre corridas.
+
+La ruta nueva `/inmuebles/...` está permitida por el `robots.txt` actual del
+portal. El endpoint de resultados limita `totalEntries` a 10.000; ese valor es
+el límite efectivo del barrido.
 
 ## Estructura
 
@@ -29,14 +45,15 @@ models.py               # InmuebleScraped (pydantic)
 db.py                   # Mongo: índice único, upsert bulk, marcar inactivos
 utils/parsing.py        # normalización de números/precios/áreas
 scrapers/
-  base.py               # Playwright + extracción __NEXT_DATA__ con retry/delay
+  base.py               # Playwright + extracción con retry/delay
   fincaraiz.py          # listado + mapeo a InmuebleScraped
+  metrocuadrado.py      # API de listado + enrich desde páginas de detalle
 ```
 
 ## Setup
 
 ```bash
-cp .env.example .env            # ajusta MONGO_URL y FINCARAIZ_BASE_URL
+cp .env.example .env            # ajusta Mongo y URLs de búsqueda
 uv run playwright install chromium
 ```
 
@@ -62,17 +79,23 @@ Variables principales (ver `.env.example`):
 | `MIN_MAPPED_RATIO` | `0.25` | Proporción mínima de items mapeados frente a items recibidos |
 | `SCRAPE_LEASE_TTL_S` | `21600` | Duración del lease contra dos procesos concurrentes |
 | `MAX_CANON_S` / `MAX_AREA_M2` | `50000000` / `2000` | Límites para descartar outliers |
+| `METROCUADRADO_BASE_URL` | `…/inmuebles/arriendo/apartamentos/bogota/` | URL canónica de búsqueda |
+| `METROCUADRADO_SEARCH_URL` | `…/rest-search/search` | API de resultados |
+| `METROCUADRADO_API_KEY` | clave pública del portal | Header `X-Api-Key` |
+| `METROCUADRADO_ENRICH_DETAILS` | `true` | Visitar detalles de anuncios nuevos |
+| `METROCUADRADO_MAX_DETAIL_ITEMS` | `50` | Máximo de detalles por corrida |
 
 ## Rotación de ventana (cursor)
 
 Cada corrida cubre `MAX_PAGINAS` páginas. Para no scrapear siempre las mismas,
-la ventana **rota entre corridas**: la página de arranque se persiste en Mongo (`scraper_meta`, doc
-`cursor:fincaraiz`) y cada corrida arranca donde terminó la anterior,
-envolviendo a 1 al llegar al final del listado.
+la ventana **rota entre corridas**: el punto de arranque se persiste en Mongo
+(`scraper_meta`). Fincaraiz guarda la página (`cursor:fincaraiz`); Metrocuadrado
+guarda el offset `from` (`cursor:metrocuadrado`). Ambos envuelven al inicio al
+llegar al final del listado.
 
 El período de barrido se calcula con el `lastPage` informado por el portal.
-Si una corrida se corta por bloqueo, el cursor avanza sólo hasta la última
-página traída con éxito y no se marcan inmuebles como inactivos.
+Si una corrida se corta por bloqueo o pierde el lease, se guardan las páginas
+válidas pero no se mueve el cursor ni se marcan inmuebles como inactivos.
 
 ## Inmuebles despublicados
 
@@ -89,8 +112,9 @@ invariante.
 
 ## Identidad y dedupe
 
-La clave única es `id` (`fincaraiz-<externalId>`), estable ante cambios de
-slug. `urlOriginal` tiene índice no único: Fincaraiz a veces cambia el slug
+La clave única es `id` (`fincaraiz-<externalId>` o
+`metrocuadrado-<midinmueble>`), estable ante cambios de slug. `urlOriginal`
+tiene índice no único: los portales pueden cambiar el slug
 del mismo inmueble (p. ej. `…-cedritos-bogota` → `…-cedritos-zona-norte-bogota`),
 y upsertar por URL crearía duplicados. Las URLs y descripciones se validan y
 las descripciones se limpian de correos y teléfonos antes de persistirlas.
