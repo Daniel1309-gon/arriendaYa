@@ -30,7 +30,8 @@ conservan los datos del listado. Un detalle que ya no existe (404/410 o
 redirección dentro del sitio) se omite sin detener el resto; cada detalle
 visitado o con 404/410 queda marcado con `detalleIntentadoEn` para no
 revisitarlo en cada corrida aunque no traiga datos. Una redirección no se
-marca (podría ser un captcha) y se reintenta en la próxima corrida.
+marca (podría ser un captcha) y se reintenta en la próxima corrida; tres
+redirecciones seguidas detienen el enrich como un bloqueo.
 
 La API actual requiere `size=50` para devolver resultados. Los filtros se envían
 explícitamente como `realEstateTypeList`, `realEstateBusinessList` y `city`;

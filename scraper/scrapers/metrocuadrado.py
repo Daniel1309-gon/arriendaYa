@@ -52,6 +52,9 @@ DETAIL_FIELDS = (
 # InmuebleScraped a propósito: el doc del listado no debe traer la clave, o el
 # $set de upsert_inmuebles la borraría en cada refresco.
 DETAIL_ATTEMPT_FIELD = "detalleIntentadoEn"
+# Redirecciones seguidas en detalles que se tratan como bloqueo (p. ej. un
+# challenge servido dentro del mismo sitio).
+MAX_CONSECUTIVE_REDIRECTS = 3
 
 
 def _normalize_text(value) -> str:
@@ -414,6 +417,7 @@ class MetrocuadradoScraper(BaseScraper):
             return True
 
         detail_items = 0
+        redirect_streak = 0
         for doc_id, doc in pending:
             if detail_items >= self.max_detail_items:
                 log.info(
@@ -430,11 +434,21 @@ class MetrocuadradoScraper(BaseScraper):
                 self.assert_robots_allowed(detail_url)
                 html = self.fetch_page_html(page, detail_url)
                 doc.update(self.enrich_doc(doc, html))
+                redirect_streak = 0
             except PageUnavailableException as exc:
                 log.warning("Detalle no disponible en %s, se omite: %s", detail_url, exc)
                 # Sólo un 404/410 es definitivo; una redirección se reintenta.
                 if exc.status is not None:
                     doc[DETAIL_ATTEMPT_FIELD] = datetime.now(timezone.utc)
+                    redirect_streak = 0
+                else:
+                    redirect_streak += 1
+                    if redirect_streak >= MAX_CONSECUTIVE_REDIRECTS:
+                        log.warning(
+                            "Enrich detenido: %d redirecciones seguidas (posible bloqueo)",
+                            redirect_streak,
+                        )
+                        return True
             except BlockedException as exc:
                 log.warning("Enrich detenido por bloqueo en %s: %s", detail_url, exc)
                 return True

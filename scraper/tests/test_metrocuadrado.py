@@ -487,6 +487,31 @@ class MetrocuadradoEnrichLoopTests(unittest.TestCase):
         self.assertNotIn("detalleIntentadoEn", docs[0])
         self.assertEqual(docs[1]["estrato"], 4)
 
+    def _run_statuses(self, statuses):
+        docs = [
+            {"id": f"metrocuadrado-M-{n}", "urlOriginal": f"https://www.metrocuadrado.com/inmueble/M-{n}"}
+            for n in range(len(statuses) + 1)
+        ]
+        scraper = self._scraper(
+            {
+                doc["urlOriginal"]: PageUnavailableException("no disponible", status)
+                for doc, status in zip(docs, statuses)
+            }
+        )
+        with patch("db.get_existing_docs", return_value={}):
+            self.assertTrue(scraper._enrich_new_docs(object(), docs, None))
+        return scraper.fetched, docs
+
+    def test_repeated_redirects_stop_enrich(self):
+        fetched, docs = self._run_statuses([None, None, None])
+
+        self.assertEqual(fetched, [doc["urlOriginal"] for doc in docs[:3]])
+
+    def test_missing_page_resets_redirect_streak(self):
+        fetched, docs = self._run_statuses([None, None, 404, None])
+
+        self.assertEqual(fetched, [doc["urlOriginal"] for doc in docs])
+
     def _assert_stored_detail_kept(self, scraper, docs):
         stored = {docs[1]["id"]: {"id": docs[1]["id"], "estrato": 5, "ascensor": True}}
         with patch("db.get_existing_docs", return_value=stored):
