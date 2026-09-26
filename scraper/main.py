@@ -150,7 +150,7 @@ def run_scrape(portal: str) -> None:
                             days=INACTIVE_AFTER_DAYS
                         )
                         desactivados = marcar_inactivos(portal, corte)
-                    set_cursor(portal, result.next_page, result.last_page or 0)
+                    set_cursor(portal, result.next_page, result.last_page)
                     nuevo_cursor = result.next_page
             except Exception:
                 log.exception("Error guardando resultados de %s en Mongo", portal)

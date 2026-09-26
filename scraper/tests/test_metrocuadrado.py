@@ -636,6 +636,19 @@ class ScraperDatabaseTests(unittest.TestCase):
         projection = collection.find.call_args.kwargs["projection"]
         self.assertEqual(projection["detalleIntentadoEn"], 1)
 
+    def test_cursor_without_last_page_keeps_stored_value(self):
+        import db
+
+        collection = Mock()
+        with patch("db.get_meta_collection", return_value=collection):
+            db.set_cursor("metrocuadrado", 150, None)
+            db.set_cursor("metrocuadrado", 0, 40)
+
+        unknown, known = (c.args[1]["$set"] for c in collection.update_one.call_args_list)
+        self.assertEqual(unknown["nextPage"], 150)
+        self.assertNotIn("lastPage", unknown)
+        self.assertEqual(known["lastPage"], 40)
+
 
 if __name__ == "__main__":
     unittest.main()

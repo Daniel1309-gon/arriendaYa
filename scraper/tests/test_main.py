@@ -47,6 +47,11 @@ class RunScrapeCursorTests(unittest.TestCase):
         db["set_cursor"].assert_called_once_with("fincaraiz", 8, 40)
         db["marcar_inactivos"].assert_not_called()
 
+    def test_aborted_run_without_last_page_keeps_stored_last_page(self):
+        db = self._run(_result(last_page=None))
+
+        db["set_cursor"].assert_called_once_with("fincaraiz", 8, None)
+
     def test_lease_loss_does_not_touch_cursor(self):
         db = self._run(
             _result(abort_reason="se perdió el lease de scraping", lease_lost=True)
