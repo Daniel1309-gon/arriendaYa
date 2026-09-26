@@ -58,6 +58,11 @@ function esImagenPermitida(url: string): boolean {
     partes[2] === "image" &&
     partes[3] === "upload" &&
     partes.length > 4;
+  const esMetrocuadrado =
+    parsed.hostname === "multimedia.metrocuadrado.com" &&
+    /^\/([A-Za-z0-9][A-Za-z0-9_-]*)\/\1_\d+_p\.(?:jpe?g|png|webp)$/i.test(
+      parsed.pathname,
+    );
   const hostPortal = parsed.hostname;
   const esPortal =
     hostPortal === "d3s5pkt10pk3ga.cloudfront.net" ||
@@ -66,7 +71,11 @@ function esImagenPermitida(url: string): boolean {
     hostPortal === "fincaraiz.com.co" ||
     hostPortal.endsWith(".fincaraiz.com.co");
 
-  return esCloudinary || (esPortal && parsed.pathname.startsWith("/repo/img/"));
+  return (
+    esCloudinary ||
+    esMetrocuadrado ||
+    (esPortal && parsed.pathname.startsWith("/repo/img/"))
+  );
 }
 
 function imagenesDe(valor: unknown): string[] {
