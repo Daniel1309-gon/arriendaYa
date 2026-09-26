@@ -187,6 +187,7 @@ def get_existing_docs(portal: str, ids: list[str]) -> dict[str, dict]:
             "petFriendly": 1,
             "latitud": 1,
             "longitud": 1,
+            "detalleIntentadoEn": 1,
         },
     )
     return {

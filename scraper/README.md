@@ -26,7 +26,10 @@ listado en Mongo. La paginación es por offset (`from`/`size`) y el cursor se
 persiste como `cursor:metrocuadrado`. Los inmuebles nuevos se visitan también
 en `/inmueble/...` para extraer coordenadas exactas, estrato, piso,
 antigüedad, administración y características. Si el detalle falla, se
-conservan los datos del listado.
+conservan los datos del listado. Un detalle que ya no existe (404/410 o
+redirección dentro del sitio) se omite sin detener el resto; cada detalle
+visitado queda marcado con `detalleIntentadoEn` para no revisitarlo en cada
+corrida aunque no traiga datos.
 
 La API actual requiere `size=50` para devolver resultados. Los filtros se envían
 explícitamente como `realEstateTypeList`, `realEstateBusinessList` y `city`;
