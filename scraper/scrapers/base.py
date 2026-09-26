@@ -2,6 +2,7 @@ import json
 import logging
 import random
 import time
+from dataclasses import dataclass
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
@@ -14,6 +15,19 @@ log = logging.getLogger("scraper")
 
 class BlockedException(Exception):
     pass
+
+
+@dataclass(frozen=True)
+class ScrapeResult:
+    docs: list[dict]
+    completa: bool
+    next_page: int
+    last_page: int | None
+    pages_fetched: int
+    raw_items: int
+    mapped_items: int
+    aborted: bool
+    abort_reason: str | None = None
 
 
 class BaseScraper:
@@ -47,9 +61,13 @@ class BaseScraper:
         path = urlparse(url).path or "/"
         return path.rstrip("/") or "/"
 
-    def assert_robots_allowed(self, url: str) -> None:
+    @staticmethod
+    def _origin_of(url: str) -> str:
         parsed = urlparse(url)
-        origin = f"{parsed.scheme}://{parsed.netloc}"
+        return f"{parsed.scheme.lower()}://{(parsed.netloc or '').lower()}"
+
+    def assert_robots_allowed(self, url: str) -> None:
+        origin = self._origin_of(url)
         parser = self._robots_cache.get(origin)
         if parser is None:
             robots_url = f"{origin}/robots.txt"
@@ -77,33 +95,101 @@ class BaseScraper:
             raise BlockedException(f"robots.txt no permite {url}")
 
     def fetch_next_data(self, page: Page, url: str, attempts: int = 2):
+        self.navigate(page, url, attempts=attempts)
+        text = page.evaluate(
+            "() => { const el = document.getElementById('__NEXT_DATA__');"
+            " return el ? el.textContent : null; }"
+        )
+        if not text:
+            raise BlockedException(
+                f"Sin __NEXT_DATA__ en {url} (posible captcha/bloqueo)"
+            )
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise BlockedException(f"__NEXT_DATA__ ilegible en {url}") from exc
+
+    def navigate(self, page: Page, url: str, attempts: int = 2) -> None:
+        """Navega a una página sin asumir el mecanismo de renderizado del portal."""
         last_err: Exception | None = None
         for i in range(attempts):
             try:
-                resp = page.goto(url, wait_until="domcontentloaded", timeout=60000)
-                status = resp.status if resp else 0
-                if status in (401, 403, 404, 407, 410, 429):
+                response = page.goto(
+                    url, wait_until="domcontentloaded", timeout=60000
+                )
+                status = response.status if response else 0
+                if 400 <= status < 500:
                     raise BlockedException(f"HTTP {status} en {url}")
                 if status >= 500:
                     raise RuntimeError(f"HTTP {status} en {url}")
-                if resp is not None and self._path_of(page.url) != self._path_of(url):
+                if response is not None and (
+                    self._origin_of(page.url) != self._origin_of(url)
+                    or self._path_of(page.url) != self._path_of(url)
+                ):
                     raise BlockedException(
                         f"Redirección inesperada: se pidió {url} y se obtuvo {page.url}"
                     )
-                text = page.evaluate(
-                    "() => { const el = document.getElementById('__NEXT_DATA__');"
-                    " return el ? el.textContent : null; }"
-                )
-                if not text:
-                    raise BlockedException(
-                        f"Sin __NEXT_DATA__ en {url} (posible captcha/bloqueo)"
-                    )
-                return json.loads(text)
+                return
             except BlockedException:
                 raise
-            except Exception as e:
-                last_err = e
-                log.warning("Intento %d/%d fallido para %s: %s", i + 1, attempts, url, e)
+            except Exception as exc:
+                last_err = exc
+                log.warning(
+                    "Intento %d/%d fallido para %s: %s", i + 1, attempts, url, exc
+                )
+                self.delay()
+        raise BlockedException(f"No se pudo obtener {url}: {last_err}")
+
+    def fetch_page_html(self, page: Page, url: str, attempts: int = 2) -> str:
+        self.navigate(page, url, attempts=attempts)
+        return page.content()
+
+    def fetch_search_json(
+        self, page: Page, url: str, api_key: str, attempts: int = 2
+    ) -> dict:
+        """Obtiene JSON desde el mismo contexto del navegador que abrió el portal."""
+        last_err: Exception | None = None
+        for i in range(attempts):
+            try:
+                result = page.evaluate(
+                    """
+                    async ({ url, apiKey }) => {
+                        const response = await fetch(url, {
+                            credentials: "include",
+                            headers: { "X-Api-Key": apiKey },
+                        });
+                        return {
+                            status: response.status,
+                            body: await response.text(),
+                        };
+                    }
+                    """,
+                    {"url": url, "apiKey": api_key},
+                )
+                status = int(result.get("status", 0))
+                body = result.get("body", "")
+                if 400 <= status < 500:
+                    raise BlockedException(f"HTTP {status} en {url}")
+                if status >= 500:
+                    raise RuntimeError(f"HTTP {status} en {url}")
+                if not isinstance(body, str) or not body:
+                    raise BlockedException(f"Respuesta vacía en {url}")
+                try:
+                    payload = json.loads(body)
+                except json.JSONDecodeError as exc:
+                    raise BlockedException(
+                        f"Respuesta no JSON en {url} (posible bloqueo)"
+                    ) from exc
+                if not isinstance(payload, dict):
+                    raise BlockedException(f"JSON inesperado en {url}")
+                return payload
+            except BlockedException:
+                raise
+            except Exception as exc:
+                last_err = exc
+                log.warning(
+                    "Intento %d/%d fallido para %s: %s", i + 1, attempts, url, exc
+                )
                 self.delay()
         raise BlockedException(f"No se pudo obtener {url}: {last_err}")
 
