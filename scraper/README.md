@@ -99,7 +99,8 @@ guarda el offset `from` (`cursor:metrocuadrado`). Ambos envuelven al inicio al
 llegar al final del listado.
 
 El período de barrido se calcula con el `lastPage` informado por el portal.
-Si una corrida se corta (bloqueo, paginación inconsistente), se guardan las
+Si una corrida se corta (bloqueo, paginación inconsistente o, en
+Metrocuadrado, una página vacía antes del total informado), se guardan las
 páginas válidas y el cursor avanza hasta la primera página u offset que falló,
 pero no se marcan inmuebles como inactivos. Si la corrida pierde el lease, el
 cursor no se toca: otro proceso lo está rotando.

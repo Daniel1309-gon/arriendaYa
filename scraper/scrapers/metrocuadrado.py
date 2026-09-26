@@ -521,6 +521,17 @@ class MetrocuadradoScraper(BaseScraper):
                                 reset_attempted = True
                                 next_from = 0
                                 continue
+                            # Sólo es fin de catálogo si el offset ya pasó el
+                            # total; si no, un 200 vacío transitorio reiniciaría
+                            # el cursor y dispararía marcar_inactivos.
+                            if not available or next_from < available:
+                                aborted = True
+                                abort_reason = (
+                                    f"página vacía en offset {next_from} "
+                                    f"(total {available or 'desconocido'})"
+                                )
+                                log.error("Metrocuadrado: %s; abortando corrida", abort_reason)
+                                break
                             completa = True
                             next_from = 0
                             break

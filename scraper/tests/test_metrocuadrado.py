@@ -341,6 +341,72 @@ class MetrocuadradoPaginationTests(unittest.TestCase):
         self.assertEqual(result.next_page, 10)
 
 
+class MetrocuadradoEmptyPageTests(unittest.TestCase):
+    def _scrape(self, pages):
+        class StubScraper(MetrocuadradoScraper):
+            def assert_robots_allowed(self, url):
+                return None
+
+            def navigate(self, page, url, attempts=2):
+                return None
+
+            def fetch_search_json(self, page, url, api_key, attempts=2):
+                return pages[int(parse_qs(urlparse(url).query)["from"][0])]
+
+            def map_item(self, item):
+                return {"id": f"metrocuadrado-{item['id']}"}
+
+            def delay(self):
+                return None
+
+        browser = Mock()
+        browser.new_context.return_value.new_page.return_value = object()
+        playwright = Mock()
+        playwright.__enter__ = Mock(return_value=playwright)
+        playwright.__exit__ = Mock(return_value=None)
+        playwright.chromium.launch.return_value = browser
+        scraper = StubScraper(
+            base_url="https://www.metrocuadrado.com/inmuebles/arriendo/apartamentos/bogota/",
+            search_url="https://www.metrocuadrado.com/rest-search/search",
+            api_key="test-key",
+            max_paginas=5,
+            delay_min=0,
+            delay_max=0,
+            headless=True,
+            user_agent="test-agent",
+            page_size=2,
+            enrich_details=False,
+        )
+        with patch("scrapers.metrocuadrado.sync_playwright", return_value=playwright):
+            return scraper.scrape(start_from=0)
+
+    def test_empty_page_before_total_aborts_without_resetting_cursor(self):
+        result = self._scrape(
+            {
+                0: {"totalHits": 10, "totalEntries": 10, "results": [{"id": 1}, {"id": 2}]},
+                2: {"totalHits": 10, "totalEntries": 10, "results": []},
+            }
+        )
+
+        self.assertTrue(result.aborted)
+        self.assertFalse(result.completa)
+        self.assertFalse(result.lease_lost)
+        self.assertEqual(result.next_page, 2)
+        self.assertIn("offset 2", result.abort_reason)
+
+    def test_empty_page_at_total_is_end_of_catalog(self):
+        result = self._scrape(
+            {
+                0: {"totalHits": 2, "totalEntries": 10, "results": [{"id": 1}, {"id": 2}]},
+                2: {"totalHits": 2, "totalEntries": 10, "results": []},
+            }
+        )
+
+        self.assertFalse(result.aborted)
+        self.assertTrue(result.completa)
+        self.assertEqual(result.next_page, 0)
+
+
 class BaseScraperHttpTests(unittest.TestCase):
     def test_search_http_4xx_is_blocked_instead_of_empty_results(self):
         class Page:
